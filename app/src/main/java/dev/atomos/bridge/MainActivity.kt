@@ -9,6 +9,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -39,6 +40,7 @@ private val SurfaceDark = androidx.compose.ui.graphics.Color(0xFF151A27)
 class MainActivity : ComponentActivity() {
     private var authCallback by mutableStateOf<Uri?>(null)
     override fun onCreate(savedInstanceState: Bundle?) {
+        installSplashScreen()
         super.onCreate(savedInstanceState)
         authCallback = intent?.data
         val store = SecureStore(this)
@@ -152,6 +154,7 @@ private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> U
         }
     }
     LaunchedEffect(access) {
+        if (callback != null) return@LaunchedEffect
         val token = access
         if (token.isNullOrBlank()) {
             user = null
@@ -200,6 +203,7 @@ private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> U
                 val verifier = auth.verifier()
                 store.put("oauth_verifier", verifier)
                 openBrowser(auth.discordUrl(verifier))
+                authLaunching = false
             } catch (e: Exception) {
                 authLaunching = false
                 authError = e.message ?: "Unable to start Discord sign-in."
