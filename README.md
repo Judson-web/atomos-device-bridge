@@ -1,15 +1,16 @@
 # Atomos Device Bridge
 
-Android companion app for explicitly authorized device automation. Current source version: **0.2.1**.
+Android companion app for explicitly authorized device automation. Current source version: **0.2.2**.
 
 ## Implemented
 
 - Kotlin + Jetpack Compose AMOLED dashboard.
-- Supabase email OTP sign-in.
+- **GitHub-only sign-in** through Supabase Auth OAuth using the system browser and PKCE.
+- App deep-link callback at `dev.atomos.bridge://auth-callback`; the PKCE verifier is stored encrypted with Android Keystore.
 - Owner-authenticated device registration and pairing.
 - 12-hex-character one-time pairing code, three-minute expiry, single-use atomic claim, and a per-account issuance limit of five challenges per 15 minutes.
 - Random 256-bit device session token; only its SHA-256 hash is stored server-side.
-- Device credential encrypted at rest with AES-256-GCM and a non-exportable Android Keystore key. The encrypted value is authenticated against its storage key name.
+- Device credential encrypted at rest with AES-256-GCM and a non-exportable Android Keystore key.
 - Migration of credentials from the previous encrypted-preferences format.
 - One-time automatic Supabase session refresh on authenticated requests.
 - Bounded network timeouts and response sizes, input validation, safe error handling, and no HTTP cleartext.
@@ -19,7 +20,17 @@ Android companion app for explicitly authorized device automation. Current sourc
 
 ## Not implemented yet
 
-This is a hardened identity and pairing milestone, **not yet a complete remote-control product**. There is no command queue, background command receiver, MCP server transport, live screen streaming, or MediaProjection flow. Pairing authenticates a phone but does not enable remote commands. These capabilities must be implemented and tested before the phone can be described as remotely controllable.
+This is a hardened identity and pairing milestone, **not yet a complete remote-control product**. There is no command queue, background command receiver, MCP server transport, live screen streaming, or MediaProjection flow. Pairing authenticates a phone but does not enable remote commands.
+
+## GitHub OAuth setup
+
+1. In GitHub Developer Settings, create an OAuth App.
+2. Set its **Authorization callback URL** to `https://swvlujplpqfppnhdhxyf.supabase.co/auth/v1/callback`.
+3. In Supabase Dashboard → Authentication → Providers → GitHub, enable GitHub and enter the OAuth App client ID and client secret. Keep the secret in Supabase, never in the Android app or repository.
+4. In Supabase Dashboard → Authentication → URL Configuration, add `dev.atomos.bridge://auth-callback` to the allowed redirect URLs.
+5. Confirm GitHub is the only enabled provider if you want to disable other sign-in methods at the project level.
+
+The Android app uses the system browser, an S256 PKCE challenge, a one-time callback code exchange, and encrypted local storage for the verifier and resulting session tokens.
 
 ## Build and release
 
@@ -27,13 +38,11 @@ Open in Android Studio with JDK 17 and Android SDK 35. Package: `dev.atomos.brid
 
 ## Setup
 
-1. Install the signed APK.
+1. Install the APK.
 2. Enable Atomos Device Bridge under Android Settings → Accessibility.
-3. Open the app, enter your account email, and verify the one-time code.
+3. Tap **Continue with GitHub** and authorize in the browser.
 4. Tap **Register this phone**, then **Test secure connection**.
 5. Credentials are stored encrypted with Android Keystore. You can revoke this device from the app.
-
-Email OTP delivery depends on the Supabase project's Auth email provider and template. Configure the email template to include `{{ .Token }}` if numeric OTP delivery is desired.
 
 Notification access is optional. Screen capture will use Android MediaProjection and require a fresh system consent flow. No root or network-facing ADB shell is used.
 
@@ -43,9 +52,9 @@ Notification access is optional. Screen capture will use Android MediaProjection
 - Owner operations require a verified Supabase user session.
 - Pairing claims require the same authenticated account that created the challenge.
 - Pairing codes are hashed at rest, expire after three minutes, and can be claimed once.
-- Device sessions expire after 30 days and can be revoked. A revoked device is rejected even if its old token is presented.
+- Device sessions expire after 30 days and can be revoked.
 - No notification content or screen content is retained by this app.
 
 ## Compatibility
 
-Minimum Android 8.0 (API 26), target/compile SDK 35. Validate on the target Android 17 / One UI build and keep the Android Gradle Plugin, Kotlin and SDK toolchain aligned with the CI workflow.
+Minimum Android 8.0 (API 26), target/compile SDK 35.
