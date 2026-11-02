@@ -69,6 +69,9 @@ private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> U
     var speedResult by remember { mutableStateOf("Run a test to measure your connection.") }
     var speedBusy by remember { mutableStateOf(false) }
     var speedProgress by remember { mutableFloatStateOf(0f) }
+    fun refreshFiles(dir: DocumentFile?) {
+        entries = dir?.listFiles()?.sortedWith(compareByDescending<DocumentFile> { it.isDirectory }.thenBy { it.name?.lowercase() })?.toList().orEmpty()
+    }
     val treePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
             runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION) }
@@ -90,9 +93,6 @@ private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> U
             } catch (e: Exception) { status = e.message ?: "Unable to prepare installer." }
             finally { busy = false }
         }
-    }
-    fun refreshFiles(dir: DocumentFile?) {
-        entries = dir?.listFiles()?.sortedWith(compareByDescending<DocumentFile> { it.isDirectory }.thenBy { it.name?.lowercase() })?.toList().orEmpty()
     }
     LaunchedEffect(callback) {
         val uri = callback ?: return@LaunchedEffect
