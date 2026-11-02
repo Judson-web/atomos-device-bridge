@@ -1,21 +1,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <uses-permission android:name="android.permission.INTERNET"/>
-    <uses-permission android:name="android.permission.READ_SMS"/>
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING"/>
-    <application android:allowBackup="false" android:label="@string/app_name" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher" android:theme="@style/Theme.AtomosBridge" android:usesCleartextTraffic="false">
-        <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop">
-            <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
-            <intent-filter><action android:name="android.intent.action.VIEW"/><category android:name="android.intent.category.DEFAULT"/><category android:name="android.intent.category.BROWSABLE"/><data android:scheme="dev.atomos.bridge" android:host="auth-callback"/></intent-filter>
-        </activity>
-        <service android:name=".AtomosAccessibilityService" android:exported="true" android:label="Atomos" android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
-            <intent-filter><action android:name="android.accessibilityservice.AccessibilityService"/></intent-filter>
-            <meta-data android:name="android.accessibilityservice" android:resource="@xml/atomos_accessibility_service"/>
-        </service>
-        <service android:name=".AtomosNotificationListener" android:label="Atomos optional notification access" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" android:exported="true">
-            <intent-filter><action android:name="android.service.notification.NotificationListenerService"/></intent-filter>
-        </service>
-        <service android:name=".CloudCommandService" android:exported="false" android:foregroundServiceType="remoteMessaging" android:stopWithTask="false"/>
-    </application>
+ <uses-permission android:name="android.permission.INTERNET" />
+ <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+ <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+ <application android:allowBackup="false" android:label="Atomos" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher" android:theme="@style/Theme.AtomosBridge" android:usesCleartextTraffic="false">
+  <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop">
+   <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+   <intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><category android:name="android.intent.category.BROWSABLE" /><data android:scheme="dev.atomos.bridge" android:host="auth-callback" /></intent-filter>
+  </activity>
+  <receiver android:name=".InstallResultReceiver" android:exported="false" />
+ </application>
 </manifest>

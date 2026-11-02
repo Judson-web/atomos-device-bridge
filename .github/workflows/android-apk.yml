@@ -71,7 +71,7 @@ jobs:
             VERSION="${GITHUB_REF_NAME#v}"
             TAG="$GITHUB_REF_NAME"
           else
-            VERSION="$(sed -nE 's/.*versionName="([^"]+)".*/\1/p' app/build.gradle.kts | head -n1)"
+            VERSION="$(sed -nE 's/.*versionName[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' app/build.gradle.kts | head -n1)"
             if [[ -z "$VERSION" ]]; then
               echo "::error::Could not read versionName from app/build.gradle.kts"
               exit 1
@@ -133,16 +133,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -s app/build/outputs/apk/debug/app-debug.apk
+          find app/build/outputs/apk/debug -type f -name '*.apk' -print -quit | grep -q .
           if [[ "$GITHUB_REF" == refs/tags/v* || ("$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF" == "refs/heads/main") ]]; then
-            test -s app/build/outputs/apk/release/*release.apk
+            find app/build/outputs/apk/release -type f -name '*.apk' -print -quit | grep -q .
           fi
 
       - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: atomos-device-bridge-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: atomos-utility-suite-debug-apk
+          path: app/build/outputs/apk/debug/**/*.apk
           if-no-files-found: error
           retention-days: 30
 
@@ -152,7 +152,7 @@ jobs:
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           target_commitish: ${{ github.sha }}
-          name: Atomos Device Bridge ${{ steps.version.outputs.version }}
+          name: Atomos Utility Suite ${{ steps.version.outputs.version }}
           generate_release_notes: true
-          files: app/build/outputs/apk/release/*.apk
+          files: app/build/outputs/apk/release/**/*.apk
           fail_on_unmatched_files: true
