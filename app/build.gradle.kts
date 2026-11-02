@@ -18,21 +18,21 @@ android {
         buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"sb_publishable_mNuobCwjLhFaqdQ03faipw_WYmrt0Ni\"")
     }
 
-    buildTypes {
-        debug { buildConfigField("boolean", "BRIDGE_DEBUG", "true") }
-        release {
-            buildConfigField("boolean", "BRIDGE_DEBUG", "false")
-            signingConfig = signingConfigs.getByName("release")
-            isMinifyEnabled = false
-        }
-    }
-
     signingConfigs {
         create("release") {
             storeFile = file("release-key.jks")
             storePassword = System.getenv("ANDROID_SIGNING_STORE_PASSWORD")
             keyAlias = System.getenv("ANDROID_SIGNING_KEY_ALIAS")
             keyPassword = System.getenv("ANDROID_SIGNING_KEY_PASSWORD")
+        }
+    }
+
+    buildTypes {
+        debug { buildConfigField("boolean", "BRIDGE_DEBUG", "true") }
+        release {
+            buildConfigField("boolean", "BRIDGE_DEBUG", "false")
+            signingConfig = signingConfigs.getByName("release")
+            isMinifyEnabled = false
         }
     }
 
