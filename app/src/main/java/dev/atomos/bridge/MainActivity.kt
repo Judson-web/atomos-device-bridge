@@ -1,6 +1,7 @@
 package dev.atomos.bridge
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
@@ -8,7 +9,6 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -19,7 +19,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
@@ -33,33 +32,70 @@ private val Violet = Color(0xFF9B8CFF)
 private val Muted = Color(0xFF9AA4B9)
 
 class MainActivity : ComponentActivity() {
+    private var oauthCallback by mutableStateOf<Uri?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        oauthCallback = intent?.data?.takeIf { it.scheme == "dev.atomos.bridge" && it.host == "auth-callback" }
         val store = SecureStore(this)
         val api = AtomosApi()
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(primary = Violet, background = Ink, surface = Panel)) {
-                BridgeDashboard(store, api,
+                BridgeDashboard(store, api, oauthCallback,
+                    { uri -> oauthCallback = null; startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(uri))) },
                     { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
                     { startActivity(Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS")) })
             }
         }
     }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        oauthCallback = intent.data?.takeIf { it.scheme == "dev.atomos.bridge" && it.host == "auth-callback" }
+    }
 }
 
 @Composable
-private fun BridgeDashboard(store: SecureStore, api: AtomosApi, openAccessibility: () -> Unit, openNotifications: () -> Unit) {
+private fun BridgeDashboard(
+    store: SecureStore,
+    api: AtomosApi,
+    oauthCallback: Uri?,
+    openOAuth: (String) -> Unit,
+    openAccessibility: () -> Unit,
+    openNotifications: () -> Unit
+) {
     val scope = rememberCoroutineScope()
-    var email by remember { mutableStateOf("") }
-    var otp by remember { mutableStateOf("") }
-    var stage by remember { mutableStateOf(if (store.get("access") != null) "signed" else "email") }
+    var stage by remember { mutableStateOf(if (store.get("access") != null) "signed" else "github") }
     var busy by remember { mutableStateOf(false) }
     var deviceId by remember { mutableStateOf(store.get("device_id").orEmpty()) }
     var deviceToken by remember { mutableStateOf(store.get("device_token")) }
     var status by remember { mutableStateOf(if (deviceToken == null) "Not paired" else "Registered device") }
-    var message by remember { mutableStateOf("Sign in to register this phone to your account.") }
+    var message by remember { mutableStateOf("Sign in securely with your GitHub account to register this phone.") }
     var accessibility by remember { mutableStateOf(BridgeState.isAccessibilityConnected()) }
     val lifecycleOwner = LocalLifecycleOwner.current
+
+    LaunchedEffect(oauthCallback) {
+        val callback = oauthCallback ?: return@LaunchedEffect
+        val error = callback.getQueryParameter("error_description") ?: callback.getQueryParameter("error")
+        val code = callback.getQueryParameter("code")
+        val verifier = store.get("github_pkce_verifier")
+        try {
+            if (!error.isNullOrBlank()) throw IllegalStateException(error.take(240))
+            require(!code.isNullOrBlank() && !verifier.isNullOrBlank()) { "GitHub sign-in could not be completed. Please try again." }
+            val tokens = withContext(Dispatchers.IO) { api.exchangeGitHubCode(code, verifier) }
+            store.put("access", tokens.accessToken)
+            store.put("refresh", tokens.refreshToken)
+            store.remove("github_pkce_verifier")
+            stage = "signed"
+            message = "GitHub account verified. You can now register this phone."
+        } catch (e: Exception) {
+            store.remove("github_pkce_verifier")
+            stage = "github"
+            message = e.message ?: "GitHub sign-in failed. Please try again."
+        }
+    }
+
     LaunchedEffect(deviceToken) {
         val token = deviceToken ?: return@LaunchedEffect
         status = "Checking device connection…"
@@ -98,7 +134,7 @@ private fun BridgeDashboard(store: SecureStore, api: AtomosApi, openAccessibilit
             try { withContext(Dispatchers.IO) { block() } }
             catch (e: Exception) {
                 message = e.message ?: "Request failed."
-                if (message.contains("sign in again", ignoreCase = true)) stage = "email"
+                if (message.contains("sign in again", ignoreCase = true)) stage = "github"
             }
             finally { busy = false }
         }
@@ -125,29 +161,29 @@ private fun BridgeDashboard(store: SecureStore, api: AtomosApi, openAccessibilit
                 }
             }
             when (stage) {
-                "email" -> {
-                    Text("ACCOUNT SIGN-IN", color = Muted, fontSize = 10.sp, letterSpacing = 2.sp)
-                    OutlinedTextField(email, { email = it.trim() }, label = { Text("Email address") },
-                        modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email))
-                    Button(onClick = { task {
-                        api.sendOtp(email)
-                        stage = "otp"; message = "A one-time verification code was sent to your email."
-                    } }, enabled = !busy && email.contains("@"), modifier = Modifier.fillMaxWidth()) { Text(if (busy) "Sending…" else "Send sign-in code") }
+                "github" -> {
+                    Text("GITHUB AUTHENTICATION", color = Muted, fontSize = 10.sp, letterSpacing = 2.sp)
+                    Button(onClick = {
+                        if (!busy) {
+                            try {
+                                val verifier = api.newPkceVerifier()
+                                store.put("github_pkce_verifier", verifier)
+                                openOAuth(api.githubAuthorizationUrl(verifier))
+                                message = "Complete authorization in your browser. Atomos will resume automatically."
+                            } catch (e: Exception) {
+                                store.remove("github_pkce_verifier")
+                                message = e.message ?: "Could not start GitHub sign-in."
+                            }
+                        }
+                    }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+                        Text(if (busy) "Please wait…" else "Continue with GitHub")
+                    }
+                    Text("GitHub is the only sign-in provider in this app. Authorization uses the system browser and a PKCE-protected callback.", color = Muted, fontSize = 11.sp)
                 }
-                "otp" -> {
-                    Text("VERIFY YOUR EMAIL", color = Muted, fontSize = 10.sp, letterSpacing = 2.sp)
-                    OutlinedTextField(otp, { otp = it.filter(Char::isDigit).take(8) }, label = { Text("Email verification code") },
-                        modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                    Button(onClick = { task {
-                        val tokens = api.verifyOtp(email, otp)
-                        store.put("access", tokens.accessToken); store.put("refresh", tokens.refreshToken)
-                        stage = "signed"; message = "Account verified. You can now register this phone."
-                    } }, enabled = !busy && otp.length >= 6, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "Verifying…" else "Verify and continue") }
-                }
-                else -> {
+                "signed" -> {
                     Text("SECURE PAIRING", color = Muted, fontSize = 10.sp, letterSpacing = 2.sp)
                     Button(onClick = { task {
-                        val extra = JSONObject().put("device_name", "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}").put("app_version", "0.2.1")
+                        val extra = JSONObject().put("device_name", "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}").put("app_version", "0.2.2")
                         val challenge = api.callAsUser("create_pairing", store, extra)
                         val claimed = api.callAsUser("claim_pairing", store, JSONObject()
                             .put("code", challenge.getString("code"))
@@ -172,7 +208,7 @@ private fun BridgeDashboard(store: SecureStore, api: AtomosApi, openAccessibilit
                         message = "The cloud credential has been revoked."
                     } }, enabled = !busy && deviceToken != null, modifier = Modifier.fillMaxWidth()) { Text("Revoke this device") }
                     TextButton(onClick = {
-                        store.remove("access", "refresh"); stage = "email"
+                        store.remove("access", "refresh", "github_pkce_verifier"); stage = "github"
                         message = "Signed out. The registered device remains until revoked."
                     }) { Text("Sign out") }
                 }
@@ -188,7 +224,7 @@ private fun BridgeDashboard(store: SecureStore, api: AtomosApi, openAccessibilit
             Button(onClick = openAccessibility, modifier = Modifier.fillMaxWidth()) { Text("Accessibility settings") }
             OutlinedButton(onClick = openNotifications, modifier = Modifier.fillMaxWidth()) { Text("Optional notification access") }
             Text("Important: pairing authenticates this phone only. Internet-based remote commands and the MCP transport are not active yet. Screen capture still requires a separate Android MediaProjection consent.", color = Color(0xFF7D88A0), fontSize = 11.sp)
-            Text("ATOMOS DEVICE BRIDGE  •  v0.2.1", color = Color(0xFF596277), fontSize = 10.sp, letterSpacing = 1.4.sp)
+            Text("ATOMOS DEVICE BRIDGE  •  v0.2.2", color = Color(0xFF596277), fontSize = 10.sp, letterSpacing = 1.4.sp)
         }
     }
 }
