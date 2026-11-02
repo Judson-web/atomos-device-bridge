@@ -1,7 +1,7 @@
 plugins { id("com.android.application"); id("org.jetbrains.kotlin.android"); id("org.jetbrains.kotlin.plugin.compose") }
 android {
  namespace="dev.atomos.bridge"; compileSdk=35
- defaultConfig { applicationId="dev.atomos.bridge"; minSdk=26; targetSdk=35; versionCode=6; versionName="0.3.0"
+ defaultConfig { applicationId="dev.atomos.bridge"; minSdk=26; targetSdk=35; versionCode=7; versionName="0.3.2"
   buildConfigField("String","SUPABASE_URL","\"https://swvlujplpqfppnhdhxyf.supabase.co\"")
   buildConfigField("String","SUPABASE_PUBLISHABLE_KEY","\"sb_publishable_mNuobCwjLhFaqdQ03faipw_WYmrt0Ni\"") }
  signingConfigs { create("release"){storeFile=file("release-key.jks");storePassword=System.getenv("ANDROID_SIGNING_STORE_PASSWORD");keyAlias=System.getenv("ANDROID_SIGNING_KEY_ALIAS");keyPassword=System.getenv("ANDROID_SIGNING_KEY_PASSWORD")} }
