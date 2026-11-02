@@ -84,7 +84,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun AtomosApp(store: SecureStore, activityScope: CoroutineScope) {
     val context = LocalContext.current
-    // Activity-owned work survives temporary Compose screen removal (e.g. opening OAuth in a browser).
+    // Activity-owned work survives temporary Compose screen removal during system pickers and dialogs.
     val monitor = remember { NetworkMonitor(context) }
     var page by remember { mutableStateOf("Files") }
     var busy by remember { mutableStateOf(false) }
