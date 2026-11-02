@@ -11,7 +11,7 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-/** Small encrypted preference store for Supabase tokens and local app preferences. */
+/** Small AES-GCM encrypted preference store for local app preferences. */
 class SecureStore(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences("atomos_secure_v2", Context.MODE_PRIVATE)
     private val alias = "atomos_device_bridge_v2"
