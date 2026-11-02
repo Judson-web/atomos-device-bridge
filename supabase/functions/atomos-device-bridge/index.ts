@@ -52,12 +52,14 @@ Deno.serve(async (req) => {
   }
 
   if (body.action === "claim_pairing") {
+    const user = await userFrom(req);
+    if (!user) return json({ error: "unauthorized" }, 401);
     const code = String(body.code || "").trim().toUpperCase();
     const deviceName = String(body.device_name || "Android device").trim().slice(0, 80);
     if (!/^[A-F0-9]{8}$/.test(code) || !deviceName) return json({ error: "invalid_pairing_code" }, 400);
     const hash = bytea(await digest(code));
     const { data: candidate } = await admin.schema("private").from("pairing_challenges")
-      .select("id,owner_id,app_version").eq("code_hash", hash).is("consumed_at", null)
+      .select("id,owner_id,app_version").eq("owner_id", user.id).eq("code_hash", hash).is("consumed_at", null)
       .gt("expires_at", new Date().toISOString()).lt("failed_attempts", 5).maybeSingle();
     if (!candidate) return json({ error: "pairing_code_invalid_or_expired" }, 401);
 
