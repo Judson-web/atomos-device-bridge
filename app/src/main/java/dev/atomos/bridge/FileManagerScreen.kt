@@ -54,7 +54,6 @@ fun FileManagerScreen(
     val path = remember { mutableStateListOf<DocumentFile>() }
     var entries by remember { mutableStateOf(emptyList<DocumentFile>()) }
     var loading by remember { mutableStateOf(false) }
-    var drawerOpen by remember { mutableStateOf(false) }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     var searchOpen by remember { mutableStateOf(false) }
     var search by remember { mutableStateOf("") }
@@ -138,7 +137,6 @@ fun FileManagerScreen(
     }
 
     LaunchedEffect(rootUri, path.size, path.lastOrNull()?.uri, showHidden) { reload() }
-    LaunchedEffect(drawerOpen) { if (drawerOpen) drawerState.open() else drawerState.close() }
 
     val filtered = remember(entries, search, category, sortBy) {
         entries.filter { file ->
@@ -204,14 +202,14 @@ fun FileManagerScreen(
                     Text("FILE EXPLORER", style = MaterialTheme.typography.labelSmall, color = FileMuted)
                 }
                 HorizontalDivider(color = Color.White.copy(alpha = .08f))
-                NavigationDrawerItem(label = { Text("All files") }, selected = category == "All files", onClick = { category = "All files"; drawerOpen = false }, icon = { Text("▤") }, modifier = Modifier.padding(horizontal = 12.dp))
+                NavigationDrawerItem(label = { Text("All files") }, selected = category == "All files", onClick = { category = "All files"; scope.launch { drawerState.close() } }, icon = { Text("▤") }, modifier = Modifier.padding(horizontal = 12.dp))
                 listOf("Images" to "▧", "Videos" to "▷", "Audio" to "♫", "Documents" to "▧", "APKs" to "⬇").forEach { (name, glyph) ->
-                    NavigationDrawerItem(label = { Text(name) }, selected = category == name, onClick = { category = name; drawerOpen = false }, icon = { Text(glyph) }, modifier = Modifier.padding(horizontal = 12.dp))
+                    NavigationDrawerItem(label = { Text(name) }, selected = category == name, onClick = { category = name; scope.launch { drawerState.close() } }, icon = { Text(glyph) }, modifier = Modifier.padding(horizontal = 12.dp))
                 }
                 HorizontalDivider(Modifier.padding(vertical = 10.dp, horizontal = 16.dp), color = Color.White.copy(alpha = .08f))
-                NavigationDrawerItem(label = { Text("Network") }, selected = false, onClick = { drawerOpen = false; onNavigate("Network") }, icon = { Text("⌁") }, modifier = Modifier.padding(horizontal = 12.dp))
-                NavigationDrawerItem(label = { Text("Package installer") }, selected = false, onClick = { drawerOpen = false; onNavigate("Installer") }, icon = { Text("⬇") }, modifier = Modifier.padding(horizontal = 12.dp))
-                NavigationDrawerItem(label = { Text("Settings") }, selected = false, onClick = { drawerOpen = false; onNavigate("Settings") }, icon = { Text("⚙") }, modifier = Modifier.padding(horizontal = 12.dp))
+                NavigationDrawerItem(label = { Text("Network") }, selected = false, onClick = { scope.launch { drawerState.close() }; onNavigate("Network") }, icon = { Text("⌁") }, modifier = Modifier.padding(horizontal = 12.dp))
+                NavigationDrawerItem(label = { Text("Package installer") }, selected = false, onClick = { scope.launch { drawerState.close() }; onNavigate("Installer") }, icon = { Text("⬇") }, modifier = Modifier.padding(horizontal = 12.dp))
+                NavigationDrawerItem(label = { Text("Settings") }, selected = false, onClick = { scope.launch { drawerState.close() }; onNavigate("Settings") }, icon = { Text("⚙") }, modifier = Modifier.padding(horizontal = 12.dp))
                 Spacer(Modifier.height(16.dp))
                 Text("Storage access is limited to folders you grant.", style = MaterialTheme.typography.labelSmall, color = FileMuted, modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp))
             }
@@ -228,7 +226,7 @@ fun FileManagerScreen(
                         }
                     },
                     navigationIcon = {
-                        IconButton(onClick = { drawerOpen = true }) {
+                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
                             Icon(Icons.Default.Menu, contentDescription = "Open navigation drawer")
                         }
                     },
