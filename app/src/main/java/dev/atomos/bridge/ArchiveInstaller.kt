@@ -18,13 +18,20 @@ object ArchiveInstaller {
     private const val MAX_APK_SPLITS = 32
 
     fun prepare(context: Context, source: File): Prepared {
-        require(source.isFile && source.length() > 0L) { "The selected package is empty or unavailable." }
-        require(source.length() <= MAX_SOURCE_BYTES) { "The selected package exceeds the 1 GB source limit." }
+        if (!source.isFile || source.length() <= 0L) {
+            source.delete()
+            error("The selected package is empty or unavailable.")
+        }
+        if (source.length() > MAX_SOURCE_BYTES) {
+            source.delete()
+            error("The selected package exceeds the 1 GB source limit.")
+        }
 
         val ext = source.extension.lowercase()
         if (ext == "apk") return Prepared(listOf(source), source.name)
-        require(ext in setOf("apkm", "apks", "apkx", "xapk", "zip")) {
-            "Choose an APK, APKM, APKS, APKX or XAPK file."
+        if (ext !in setOf("apkm", "apks", "apkx", "xapk", "zip")) {
+            source.delete()
+            error("Choose an APK, APKM, APKS, APKX or XAPK file.")
         }
 
         val out = File(context.cacheDir, "install-${UUID.randomUUID()}").apply {
