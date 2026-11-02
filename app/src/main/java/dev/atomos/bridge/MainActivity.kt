@@ -56,7 +56,10 @@ private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> U
     val monitor = remember { NetworkMonitor(context) }
     var user by remember { mutableStateOf<AuthUser?>(null) }
     var access by remember { mutableStateOf(store.get("access")) }
-    var page by remember { mutableStateOf("Home") }
+    var authState by remember { mutableStateOf(if (access.isNullOrBlank()) "signed_out" else "checking") }
+    var authError by remember { mutableStateOf<String?>(null) }
+    var authLaunching by remember { mutableStateOf(false) }
+    var page by remember { mutableStateOf("Files") }
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("Ready") }
     var network by remember { mutableStateOf(NetworkSnapshot(false, "Offline", false, 0, 0, "")) }
@@ -130,17 +133,22 @@ private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> U
     LaunchedEffect(callback) {
         val uri = callback ?: return@LaunchedEffect
         clearCallback()
+        authState = "checking"
+        authLaunching = false
         val code = uri.getQueryParameter("code")
+        val oauthError = uri.getQueryParameter("error_description") ?: uri.getQueryParameter("error")
         val verifier = store.get("oauth_verifier")
         try {
+            if (!oauthError.isNullOrBlank()) error(oauthError)
             require(!code.isNullOrBlank() && !verifier.isNullOrBlank()) { "Discord sign-in could not be completed." }
             val tokens = withContext(Dispatchers.IO) { auth.exchange(code, verifier) }
             val profile = withContext(Dispatchers.IO) { auth.user(tokens.access) }
             store.put("access", tokens.access); store.put("refresh", tokens.refresh); store.remove("oauth_verifier")
-            access = tokens.access; user = profile; status = "Signed in with Discord."
+            access = tokens.access; user = profile; authState = "authenticated"; authError = null; status = "Signed in with Discord."
         } catch (e: Exception) {
             store.remove("access", "refresh", "oauth_verifier"); access = null; user = null
-            status = "Authentication failed: ${e.message ?: "Please try again."}"
+            authState = "signed_out"; authError = e.message ?: "Please try again."
+            status = "Authentication failed."
         }
     }
     LaunchedEffect(access) {
