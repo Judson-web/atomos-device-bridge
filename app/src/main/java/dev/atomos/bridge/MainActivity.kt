@@ -66,6 +66,8 @@ private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> U
     var folderName by remember { mutableStateOf("") }
     var renameTarget by remember { mutableStateOf<DocumentFile?>(null) }
     var renameValue by remember { mutableStateOf("") }
+    var transferSource by remember { mutableStateOf<DocumentFile?>(null) }
+    var transferMove by remember { mutableStateOf(false) }
     var speedResult by remember { mutableStateOf("Run a test to measure your connection.") }
     var speedBusy by remember { mutableStateOf(false) }
     var speedProgress by remember { mutableFloatStateOf(0f) }
@@ -77,6 +79,37 @@ private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> U
             runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION) }
             folderUri = uri; currentDirectory = DocumentFile.fromTreeUri(context, uri); refreshFiles(currentDirectory); store.put("folder_uri", uri.toString())
         }
+    }
+    val destinationPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        val source = transferSource
+        if (uri != null && source != null) {
+            runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION) }
+            scope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        val targetDir = DocumentFile.fromTreeUri(context, uri) ?: error("Unable to open destination folder.")
+                        val original = source.name ?: "copied-file"
+                        var name = original
+                        var suffix = 1
+                        while (targetDir.findFile(name) != null) {
+                            val dot = original.lastIndexOf('.')
+                            name = if (dot > 0) "${original.substring(0, dot)} ($suffix)${original.substring(dot)}" else "$original ($suffix)"
+                            suffix++
+                        }
+                        val target = targetDir.createFile(source.type ?: "application/octet-stream", name) ?: error("Could not create the destination file.")
+                        try {
+                            context.contentResolver.openInputStream(source.uri)?.use { input ->
+                                context.contentResolver.openOutputStream(target.uri, "w")?.use { output -> input.copyTo(output) } ?: error("Could not write the destination file.")
+                            } ?: error("Could not read the source file.")
+                            if (transferMove && !source.delete()) error("File copied, but Android could not remove the original.")
+                        } catch (e: Exception) { target.delete(); throw e }
+                    }
+                    status = if (transferMove) "File moved." else "File copied."
+                    refreshFiles(currentDirectory)
+                } catch (e: Exception) { status = e.message ?: "File transfer failed." }
+                finally { transferSource = null; transferMove = false }
+            }
+        } else { transferSource = null; transferMove = false }
     }
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) scope.launch {
@@ -188,8 +221,8 @@ private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> U
                                 } catch (e: Exception) { status = e.message ?: "Install failed." }
                             }
                         } else status = file.name ?: "Selected file"
-                    }, { file -> renameTarget = file; renameValue = file.name.orEmpty() }, { file -> file.delete(); refreshFiles(currentDirectory) }, { currentDirectory = folderUri?.let { DocumentFile.fromTreeUri(context, it) }; refreshFiles(currentDirectory) }, renameTarget, renameValue, { renameValue = it }, {
-                        renameTarget?.renameTo(renameValue.trim()); renameTarget = null; refreshFiles(currentDirectory)
+                    }, { file -> renameTarget = file; renameValue = file.name.orEmpty() }, { file -> if (file.delete()) refreshFiles(currentDirectory) else status = "Android could not delete this item." }, { file, move -> transferSource = file; transferMove = move; destinationPicker.launch(null) }, { currentDirectory = currentDirectory?.parentFile ?: folderUri?.let { DocumentFile.fromTreeUri(context, it) }; refreshFiles(currentDirectory) }, renameTarget, renameValue, { renameValue = it }, {
+                        if (renameTarget?.renameTo(renameValue.trim()) == true) status = "Renamed successfully." else status = "Android could not rename this item."; renameTarget = null; refreshFiles(currentDirectory)
                     }, { renameTarget = null })
                     "Installer" -> InstallerPage(status, busy, { filePicker.launch(arrayOf("*/*")) }, { status = "Supported: APK, APKM, APKS, APKX and XAPK. Split archives are installed as one package session." })
                     "Settings" -> SettingsPage(user, status, { 
@@ -256,10 +289,10 @@ private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> U
         } } }
     }
 }
-@Composable private fun FilesPage(root: Uri?, current: DocumentFile?, files: List<DocumentFile>, folderName: String, setFolderName: (String) -> Unit, choose: () -> Unit, create: () -> Unit, open: (DocumentFile) -> Unit, rename: (DocumentFile) -> Unit, delete: (DocumentFile) -> Unit, back: () -> Unit, renameTarget: DocumentFile?, renameValue: String, setRename: (String) -> Unit, confirmRename: () -> Unit, cancelRename: () -> Unit) {
+@Composable private fun FilesPage(root: Uri?, current: DocumentFile?, files: List<DocumentFile>, folderName: String, setFolderName: (String) -> Unit, choose: () -> Unit, create: () -> Unit, open: (DocumentFile) -> Unit, rename: (DocumentFile) -> Unit, delete: (DocumentFile) -> Unit, transfer: (DocumentFile, Boolean) -> Unit, back: () -> Unit, renameTarget: DocumentFile?, renameValue: String, setRename: (String) -> Unit, confirmRename: () -> Unit, cancelRename: () -> Unit) {
     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 18.dp)) {
         item { Text("File manager", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
-        item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { OutlinedButton(onClick = choose, modifier = Modifier.weight(1f)) { Text(if (root == null) "Choose storage" else "Change folder") }; OutlinedButton(onClick = back, enabled = root != null && current?.uri != root) { Text("Root") } } }
+        item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { OutlinedButton(onClick = choose, modifier = Modifier.weight(1f)) { Text(if (root == null) "Choose storage" else "Change folder") }; OutlinedButton(onClick = back, enabled = root != null && current?.uri != root) { Text("Up") } } }
         item { Text("Atomos uses Android's folder picker. Only the folder you grant is accessible.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         item { Row(verticalAlignment = Alignment.CenterVertically) { OutlinedTextField(folderName, setFolderName, modifier = Modifier.weight(1f), label = { Text("New folder") }, singleLine = true); Spacer(Modifier.width(8.dp)); Button(onClick = create, enabled = folderName.isNotBlank()) { Text("Create") } } }
         if (files.isEmpty()) item { Text(if (root == null) "Choose a folder to begin." else "This folder is empty.", modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -271,7 +304,11 @@ private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> U
                         Column(Modifier.weight(1f)) { Text(file.name ?: "Unnamed", fontWeight = FontWeight.Medium); Text(if (file.isDirectory) "Folder" else "${file.type ?: "File"} · ${file.length()} bytes", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         Text("Open", color = Violet)
                     }
-                    if (!file.isDirectory) Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                    Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                        if (!file.isDirectory) {
+                            TextButton(onClick = { transfer(file, false) }) { Text("Copy") }
+                            TextButton(onClick = { transfer(file, true) }) { Text("Move") }
+                        }
                         TextButton(onClick = { rename(file) }) { Text("Rename") }
                         TextButton(onClick = { delete(file) }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
                     }
