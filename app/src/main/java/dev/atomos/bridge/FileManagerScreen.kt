@@ -6,6 +6,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -226,8 +228,8 @@ fun FileManagerScreen(
                         }
                     },
                     navigationIcon = {
-                        IconButton(onClick = { if (path.isNotEmpty()) path.removeAt(path.lastIndex) else drawerOpen = true }) {
-                            Icon(if (path.isNotEmpty()) Icons.Default.ArrowBack else Icons.Default.Menu, contentDescription = if (path.isNotEmpty()) "Back" else "Open navigation drawer")
+                        IconButton(onClick = { drawerOpen = true }) {
+                            Icon(Icons.Default.Menu, contentDescription = "Open navigation drawer")
                         }
                     },
                     actions = {
@@ -260,14 +262,15 @@ fun FileManagerScreen(
                     OutlinedTextField(search, { search = it }, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), placeholder = { Text("Search in this folder") }, singleLine = true)
                 }
                 if (rootUri != null) {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        if (path.isNotEmpty()) IconButton(onClick = { path.removeAt(path.lastIndex) }, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.ArrowBack, contentDescription = "Go up one folder", tint = FileViolet) }
                         Text("Storage", color = FileMuted, style = MaterialTheme.typography.labelMedium)
                         path.forEachIndexed { index, folder ->
                             Text("  /  ", color = FileMuted)
                             Text(folder.name ?: "Folder", color = if (index == path.lastIndex) FileViolet else MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.clickable { while (path.size > index + 1) path.removeAt(path.lastIndex) })
                         }
                     }
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         listOf("All files", "Images", "Videos", "Audio", "Documents", "APKs").forEach { label ->
                             FilterChip(selected = category == label, onClick = { category = label }, label = { Text(label, maxLines = 1) })
                         }
