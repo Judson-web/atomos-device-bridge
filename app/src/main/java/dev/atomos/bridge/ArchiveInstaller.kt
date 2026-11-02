@@ -19,21 +19,34 @@ object ArchiveInstaller {
         }
         val out = File(context.cacheDir, "install-${System.currentTimeMillis()}").apply { mkdirs() }
         val apks = mutableListOf<Pair<String, File>>()
+        var totalBytes = 0L
         ZipFile(source).use { zip ->
             val entries = zip.entries()
             while (entries.hasMoreElements()) {
                 val entry = entries.nextElement()
                 if (!entry.isDirectory && entry.name.lowercase().endsWith(".apk") && !entry.name.contains("../")) {
+                    require(apks.size < 32) { "This archive contains too many APK splits." }
                     val target = File(out, "split-${apks.size}.apk")
-                    zip.getInputStream(entry).use { input -> target.outputStream().use { input.copyTo(it) } }
-                    if (target.length() > 0) apks += Pair(entry.name, target) else target.delete()
+                    try {
+                        zip.getInputStream(entry).use { input ->
+                            target.outputStream().use { output ->
+                                val buffer = ByteArray(64 * 1024)
+                                while (true) {
+                                    val read = input.read(buffer)
+                                    if (read < 0) break
+                                    totalBytes += read
+                                    require(totalBytes <= 1_000_000_000L) { "This archive expands beyond the supported 1 GB install limit." }
+                                    output.write(buffer, 0, read)
+                                }
+                            }
+                        }
+                        if (target.length() > 0) apks += Pair(entry.name, target) else target.delete()
+                    } catch (e: Exception) { target.delete(); throw e }
                 }
             }
         }
         require(apks.isNotEmpty()) { "No APK files were found in this archive." }
         val ordered = apks.sortedBy { pair -> if (pair.first.substringAfterLast("/").lowercase() == "base.apk") 0 else 1 }.map { it.second }
-        require(ordered.size <= 32) { "This archive contains too many APK splits." }
-        require(ordered.sumOf { it.length() } <= 1_000_000_000L) { "This archive is larger than the supported install limit." }
         return Prepared(ordered, source.name)
     }
 
