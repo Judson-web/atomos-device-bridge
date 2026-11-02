@@ -61,7 +61,7 @@ private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> U
     var status by remember { mutableStateOf("Ready") }
     var network by remember { mutableStateOf(NetworkSnapshot(false, "Offline", false, 0, 0, "")) }
     var folderUri by remember { mutableStateOf<Uri?>(store.get("folder_uri")?.let(Uri::parse)) }
-    var currentFolder by remember { mutableStateOf<Uri?>(null) }
+    var currentDirectory by remember { mutableStateOf<DocumentFile?>(null) }
     var entries by remember { mutableStateOf(listOf<DocumentFile>()) }
     var folderName by remember { mutableStateOf("") }
     var renameTarget by remember { mutableStateOf<DocumentFile?>(null) }
@@ -91,9 +91,7 @@ private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> U
             finally { busy = false }
         }
     }
-    fun refreshFiles(uri: Uri?) {
-        if (uri == null) { entries = emptyList(); return }
-        val dir = DocumentFile.fromTreeUri(context, uri) ?: DocumentFile.fromSingleUri(context, uri)
+    fun refreshFiles(dir: DocumentFile?) {
         entries = dir?.listFiles()?.sortedWith(compareByDescending<DocumentFile> { it.isDirectory }.thenBy { it.name?.lowercase() })?.toList().orEmpty()
     }
     LaunchedEffect(callback) {
@@ -138,7 +136,7 @@ private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> U
             prev = current; last = now
         }
     }
-    LaunchedEffect(folderUri, currentFolder) { refreshFiles(currentFolder ?: folderUri) }
+    LaunchedEffect(folderUri) { currentDirectory = folderUri?.let { DocumentFile.fromTreeUri(context, it) }; refreshFiles(currentDirectory) }
     MaterialTheme(colorScheme = darkColorScheme(primary = Violet, background = Background, surface = SurfaceDark)) {
         Scaffold(
             containerColor = Background,
@@ -171,14 +169,14 @@ private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> U
                             finally { speedBusy = false; speedProgress = 1f }
                         }
                     }
-                    "Files" -> FilesPage(folderUri, currentFolder, entries, folderName, { folderName = it }, { treePicker.launch(null) }, {
+                    "Files" -> FilesPage(folderUri, currentDirectory, entries, folderName, { folderName = it }, { treePicker.launch(null) }, {
                         val target = currentFolder ?: folderUri
                         if (target != null && folderName.isNotBlank()) {
                             val dir = DocumentFile.fromTreeUri(context, target) ?: DocumentFile.fromSingleUri(context, target)
                             if (dir?.createDirectory(folderName.trim()) != null) { folderName = ""; refreshFiles(target) } else status = "Could not create folder."
                         }
                     }, { file ->
-                        if (file.isDirectory) { currentFolder = file.uri; refreshFiles(file.uri) }
+                        if (file.isDirectory) { currentDirectory = file; refreshFiles(file) }
                         else if (file.name?.substringAfterLast('.', "")?.lowercase() in setOf("apk","apkm","apks","apkx","xapk")) {
                             scope.launch {
                                 try {
@@ -191,7 +189,7 @@ private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> U
                                 } catch (e: Exception) { status = e.message ?: "Install failed." }
                             }
                         } else status = file.name ?: "Selected file"
-                    }, { file -> renameTarget = file; renameValue = file.name.orEmpty() }, { file -> file.delete(); refreshFiles(currentFolder ?: folderUri) }, { currentFolder = folderUri; refreshFiles(folderUri) }, renameTarget, renameValue, { renameValue = it }, {
+                    }, { file -> renameTarget = file; renameValue = file.name.orEmpty() }, { file -> file.delete(); refreshFiles(currentDirectory) }, { currentDirectory = folderUri?.let { DocumentFile.fromTreeUri(context, it) }; refreshFiles(currentDirectory) }, renameTarget, renameValue, { renameValue = it }, {
                         renameTarget?.renameTo(renameValue.trim()); renameTarget = null; refreshFiles(currentFolder ?: folderUri)
                     }, { renameTarget = null })
                     "Installer" -> InstallerPage(status, busy, { filePicker.launch(arrayOf("*/*")) }, { status = "Supported: APK, APKM, APKS, APKX and XAPK. Split archives are installed as one package session." })
@@ -259,10 +257,10 @@ private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> U
         } } }
     }
 }
-@Composable private fun FilesPage(root: Uri?, current: Uri?, files: List<DocumentFile>, folderName: String, setFolderName: (String) -> Unit, choose: () -> Unit, create: () -> Unit, open: (DocumentFile) -> Unit, rename: (DocumentFile) -> Unit, delete: (DocumentFile) -> Unit, back: () -> Unit, renameTarget: DocumentFile?, renameValue: String, setRename: (String) -> Unit, confirmRename: () -> Unit, cancelRename: () -> Unit) {
+@Composable private fun FilesPage(root: Uri?, current: DocumentFile?, files: List<DocumentFile>, folderName: String, setFolderName: (String) -> Unit, choose: () -> Unit, create: () -> Unit, open: (DocumentFile) -> Unit, rename: (DocumentFile) -> Unit, delete: (DocumentFile) -> Unit, back: () -> Unit, renameTarget: DocumentFile?, renameValue: String, setRename: (String) -> Unit, confirmRename: () -> Unit, cancelRename: () -> Unit) {
     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 18.dp)) {
         item { Text("File manager", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
-        item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { OutlinedButton(onClick = choose, modifier = Modifier.weight(1f)) { Text(if (root == null) "Choose storage" else "Change folder") }; OutlinedButton(onClick = back, enabled = root != null && current != root) { Text("Root") } } }
+        item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { OutlinedButton(onClick = choose, modifier = Modifier.weight(1f)) { Text(if (root == null) "Choose storage" else "Change folder") }; OutlinedButton(onClick = back, enabled = root != null && current?.uri != root) { Text("Root") } } }
         item { Text("Atomos uses Android's folder picker. Only the folder you grant is accessible.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         item { Row(verticalAlignment = Alignment.CenterVertically) { OutlinedTextField(folderName, setFolderName, modifier = Modifier.weight(1f), label = { Text("New folder") }, singleLine = true); Spacer(Modifier.width(8.dp)); Button(onClick = create, enabled = folderName.isNotBlank()) { Text("Create") } } }
         if (files.isEmpty()) item { Text(if (root == null) "Choose a folder to begin." else "This folder is empty.", modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
