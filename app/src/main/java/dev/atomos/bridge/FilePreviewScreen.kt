@@ -262,7 +262,7 @@ private fun decodePreviewBitmap(data: ByteArray): Bitmap? {
     }
     val options = BitmapFactory.Options().apply {
         inSampleSize = sampleSize
-        inPreferredConfig = Bitmap.Config.RGB_565
+        inPreferredConfig = Bitmap.Config.ARGB_8888
     }
     return BitmapFactory.decodeByteArray(data, 0, data.size, options)
 }
