@@ -72,7 +72,7 @@ private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> U
     val treePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
             runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION) }
-            folderUri = uri; currentFolder = uri; store.put("folder_uri", uri.toString())
+            folderUri = uri; currentDirectory = DocumentFile.fromTreeUri(context, uri); refreshFiles(currentDirectory); store.put("folder_uri", uri.toString())
         }
     }
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -170,10 +170,9 @@ private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> U
                         }
                     }
                     "Files" -> FilesPage(folderUri, currentDirectory, entries, folderName, { folderName = it }, { treePicker.launch(null) }, {
-                        val target = currentFolder ?: folderUri
+                        val target = currentDirectory
                         if (target != null && folderName.isNotBlank()) {
-                            val dir = DocumentFile.fromTreeUri(context, target) ?: DocumentFile.fromSingleUri(context, target)
-                            if (dir?.createDirectory(folderName.trim()) != null) { folderName = ""; refreshFiles(target) } else status = "Could not create folder."
+                            if (target.createDirectory(folderName.trim()) != null) { folderName = ""; refreshFiles(target) } else status = "Could not create folder."
                         }
                     }, { file ->
                         if (file.isDirectory) { currentDirectory = file; refreshFiles(file) }
@@ -190,7 +189,7 @@ private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> U
                             }
                         } else status = file.name ?: "Selected file"
                     }, { file -> renameTarget = file; renameValue = file.name.orEmpty() }, { file -> file.delete(); refreshFiles(currentDirectory) }, { currentDirectory = folderUri?.let { DocumentFile.fromTreeUri(context, it) }; refreshFiles(currentDirectory) }, renameTarget, renameValue, { renameValue = it }, {
-                        renameTarget?.renameTo(renameValue.trim()); renameTarget = null; refreshFiles(currentFolder ?: folderUri)
+                        renameTarget?.renameTo(renameValue.trim()); renameTarget = null; refreshFiles(currentDirectory)
                     }, { renameTarget = null })
                     "Installer" -> InstallerPage(status, busy, { filePicker.launch(arrayOf("*/*")) }, { status = "Supported: APK, APKM, APKS, APKX and XAPK. Split archives are installed as one package session." })
                     "Settings" -> SettingsPage(user, status, { 
