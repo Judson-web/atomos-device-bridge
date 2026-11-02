@@ -18,7 +18,7 @@ object ArchiveInstaller {
             "Choose an APK, APKM, APKS, APKX or XAPK file."
         }
         val out = File(context.cacheDir, "install-${System.currentTimeMillis()}").apply { mkdirs() }
-        val apks = mutableListOf<File>()
+        val apks = mutableListOf<Pair<String, File>>()
         ZipFile(source).use { zip ->
             val entries = zip.entries()
             while (entries.hasMoreElements()) {
@@ -26,12 +26,15 @@ object ArchiveInstaller {
                 if (!entry.isDirectory && entry.name.lowercase().endsWith(".apk") && !entry.name.contains("../")) {
                     val target = File(out, "split-${apks.size}.apk")
                     zip.getInputStream(entry).use { input -> target.outputStream().use { input.copyTo(it) } }
-                    if (target.length() > 0) apks += target else target.delete()
+                    if (target.length() > 0) apks += Pair(entry.name, target) else target.delete()
                 }
             }
         }
         require(apks.isNotEmpty()) { "No APK files were found in this archive." }
-        return Prepared(apks, source.name)
+        val ordered = apks.sortedBy { pair -> if (pair.first.substringAfterLast("/").lowercase() == "base.apk") 0 else 1 }.map { it.second }
+        require(ordered.size <= 32) { "This archive contains too many APK splits." }
+        require(ordered.sumOf { it.length() } <= 1_000_000_000L) { "This archive is larger than the supported install limit." }
+        return Prepared(ordered, source.name)
     }
 
     fun install(context: Context, files: List<File>) {
