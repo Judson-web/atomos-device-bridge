@@ -116,11 +116,11 @@ class AtomosApi {
             return call(action, access, extra = extra)
         } catch (e: ApiException) {
             if (e.status != 401) throw e
-            val refresh = store.get("refresh") ?: run {
+            val refreshToken = store.get("refresh") ?: run {
                 store.remove("access", "refresh")
                 throw IllegalStateException("Your session expired. Please sign in again.")
             }
-            val tokens = try { refresh(refresh) } catch (_: Exception) {
+            val tokens = try { refresh(refreshToken) } catch (_: Exception) {
                 store.remove("access", "refresh")
                 throw IllegalStateException("Your session expired. Please sign in again.")
             }
