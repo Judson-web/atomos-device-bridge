@@ -127,7 +127,13 @@ class AtomosApi {
             store.put("access", tokens.accessToken)
             store.put("refresh", tokens.refreshToken)
             access = tokens.accessToken
-            return call(action, access, extra = extra)
+            return try { call(action, access, extra = extra) } catch (retry: ApiException) {
+                if (retry.status == 401) {
+                    store.remove("access", "refresh")
+                    throw IllegalStateException("Your session expired. Please sign in again.")
+                }
+                throw retry
+            }
         }
     }
 }
