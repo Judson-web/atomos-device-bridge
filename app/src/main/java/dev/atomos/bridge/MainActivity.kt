@@ -120,7 +120,7 @@ private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> U
         } else { transferSource = null; transferMove = false }
     }
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) scope.launch {
+        if (uri != null) activityScope.launch {
             busy = true
             try {
                 val prepared = withContext(Dispatchers.IO) {
@@ -199,7 +199,7 @@ private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> U
     }
     LaunchedEffect(folderUri) { currentDirectory = folderUri?.let { DocumentFile.fromTreeUri(context, it) }; refreshFiles(currentDirectory) }
     val beginSignIn: () -> Unit = {
-        scope.launch {
+        activityScope.launch {
             authError = null
             authLaunching = true
             try {
@@ -244,7 +244,7 @@ private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> U
                 FileManagerScreen(
                     onNavigate = { page = it },
                     onInstallPackage = { file ->
-                        scope.launch {
+                        activityScope.launch {
                             busy = true
                             try {
                                 val prepared = withContext(Dispatchers.IO) {
@@ -263,7 +263,7 @@ private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> U
                 when (page) {
                     "Home" -> HomePage(network, user, status, onNetwork = { page = "Network" }, onFiles = { page = "Files" }, onInstaller = { page = "Installer" }, onSpeed = { page = "Network" })
                     "Network" -> NetworkPage(network, speedResult, speedBusy, speedProgress) {
-                        if (!speedBusy) scope.launch {
+                        if (!speedBusy) activityScope.launch {
                             speedBusy = true; speedProgress = 0f
                             try { speedResult = withContext(Dispatchers.IO) { runSpeedTest { speedProgress = it } } }
                             catch (e: Exception) { speedResult = "Test failed: ${e.message}" }
