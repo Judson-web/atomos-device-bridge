@@ -33,15 +33,18 @@ async function userFrom(req: Request) {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+  const contentLength = Number(req.headers.get("content-length") || "0");
+  if (contentLength > 16_384) return json({ error: "request_too_large" }, 413);
   let body: Record<string, unknown>;
   try { body = await req.json(); } catch { return json({ error: "invalid_json" }, 400); }
+  if (!body || typeof body !== "object" || Array.isArray(body)) return json({ error: "invalid_request" }, 400);
 
   if (body.action === "create_pairing") {
     const user = await userFrom(req);
     if (!user) return json({ error: "unauthorized" }, 401);
     const deviceName = String(body.device_name || "Android device").trim().slice(0, 80);
     if (!deviceName) return json({ error: "device_name_required" }, 400);
-    const code = randomToken(4).toUpperCase();
+    const code = randomToken(6).toUpperCase();
     const expires = new Date(Date.now() + 180_000).toISOString();
     const { error } = await admin.schema("private").from("pairing_challenges").insert({
       owner_id: user.id, code_hash: bytea(await digest(code)), device_name: deviceName,
@@ -56,7 +59,7 @@ Deno.serve(async (req) => {
     if (!user) return json({ error: "unauthorized" }, 401);
     const code = String(body.code || "").trim().toUpperCase();
     const deviceName = String(body.device_name || "Android device").trim().slice(0, 80);
-    if (!/^[A-F0-9]{8}$/.test(code) || !deviceName) return json({ error: "invalid_pairing_code" }, 400);
+    if (!/^[A-F0-9]{12}$/.test(code) || !deviceName) return json({ error: "invalid_pairing_code" }, 400);
     const hash = bytea(await digest(code));
     const { data: candidate } = await admin.schema("private").from("pairing_challenges")
       .select("id,owner_id,app_version").eq("owner_id", user.id).eq("code_hash", hash).is("consumed_at", null)
