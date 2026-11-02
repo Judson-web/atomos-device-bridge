@@ -152,18 +152,32 @@ private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> U
         }
     }
     LaunchedEffect(access) {
-        val token = access ?: return@LaunchedEffect
+        val token = access
+        if (token.isNullOrBlank()) {
+            user = null
+            authState = "signed_out"
+            return@LaunchedEffect
+        }
+        authState = "checking"
         try {
             user = withContext(Dispatchers.IO) { auth.user(token) }
+            authState = "authenticated"
+            authError = null
         } catch (_: Exception) {
             val refresh = store.get("refresh")
-            if (refresh != null) runCatching {
-                val tokens = withContext(Dispatchers.IO) { auth.refresh(refresh) }
-                val profile = withContext(Dispatchers.IO) { auth.user(tokens.access) }
-                store.put("access", tokens.access); store.put("refresh", tokens.refresh)
-                access = tokens.access; user = profile
-            }.onFailure { store.remove("access", "refresh"); access = null; user = null }
-            else { store.remove("access"); access = null }
+            if (refresh != null) {
+                try {
+                    val tokens = withContext(Dispatchers.IO) { auth.refresh(refresh) }
+                    val profile = withContext(Dispatchers.IO) { auth.user(tokens.access) }
+                    store.put("access", tokens.access); store.put("refresh", tokens.refresh)
+                    access = tokens.access; user = profile; authState = "authenticated"
+                } catch (e: Exception) {
+                    store.remove("access", "refresh"); access = null; user = null
+                    authState = "signed_out"; authError = e.message ?: "Your session expired. Sign in again."
+                }
+            } else {
+                store.remove("access"); access = null; user = null; authState = "signed_out"
+            }
         }
     }
     LaunchedEffect(Unit) {
@@ -178,7 +192,26 @@ private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> U
         }
     }
     LaunchedEffect(folderUri) { currentDirectory = folderUri?.let { DocumentFile.fromTreeUri(context, it) }; refreshFiles(currentDirectory) }
+    val beginSignIn: () -> Unit = {
+        scope.launch {
+            authError = null
+            authLaunching = true
+            try {
+                val verifier = auth.verifier()
+                store.put("oauth_verifier", verifier)
+                openBrowser(auth.discordUrl(verifier))
+            } catch (e: Exception) {
+                authLaunching = false
+                authError = e.message ?: "Unable to start Discord sign-in."
+            }
+        }
+    }
     MaterialTheme(colorScheme = darkColorScheme(primary = Violet, background = Background, surface = SurfaceDark)) {
+        if (authState == "checking") {
+            AuthLoadingScreen()
+        } else if (authState != "authenticated" || user == null) {
+            AuthGateScreen(error = authError, launching = authLaunching, onSignIn = beginSignIn)
+        } else Scaffold(
         Scaffold(
             containerColor = Background,
             topBar = {
