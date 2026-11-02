@@ -6,10 +6,16 @@
         android:label="Atomos Device Bridge"
         android:theme="@style/Theme.AtomosBridge"
         android:usesCleartextTraffic="false">
-        <activity android:name=".MainActivity" android:exported="true">
+        <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="dev.atomos.bridge" android:host="auth-callback" />
             </intent-filter>
         </activity>
         <service
@@ -17,21 +23,15 @@
             android:exported="true"
             android:label="Atomos Device Bridge"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
-            <intent-filter>
-                <action android:name="android.accessibilityservice.AccessibilityService" />
-            </intent-filter>
-            <meta-data
-                android:name="android.accessibilityservice"
-                android:resource="@xml/atomos_accessibility_service" />
+            <intent-filter><action android:name="android.accessibilityservice.AccessibilityService" /></intent-filter>
+            <meta-data android:name="android.accessibilityservice" android:resource="@xml/atomos_accessibility_service" />
         </service>
         <service
             android:name=".AtomosNotificationListener"
             android:label="Atomos notification access"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
             android:exported="true">
-            <intent-filter>
-                <action android:name="android.service.notification.NotificationListenerService" />
-            </intent-filter>
+            <intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter>
         </service>
     </application>
 </manifest>
