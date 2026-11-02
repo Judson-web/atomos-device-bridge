@@ -47,6 +47,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         authCallback = intent?.data
         val store = SecureStore(this)
+        store.remove("access", "refresh", "oauth_verifier")
         setContent { AtomosApp(store, authCallback, { authCallback = null }, { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it))) }, lifecycleScope) }
     }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); authCallback = intent.data }
@@ -59,11 +60,6 @@ private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> U
     // Activity-owned work survives temporary Compose screen removal (e.g. opening OAuth in a browser).
     val auth = remember { SupabaseAuth() }
     val monitor = remember { NetworkMonitor(context) }
-    var user by remember { mutableStateOf<AuthUser?>(null) }
-    var access by remember { mutableStateOf(store.get("access")) }
-    var authState by remember { mutableStateOf(if (access.isNullOrBlank()) "signed_out" else "checking") }
-    var authError by remember { mutableStateOf<String?>(null) }
-    var authLaunching by remember { mutableStateOf(false) }
     var page by remember { mutableStateOf("Files") }
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("Ready") }
