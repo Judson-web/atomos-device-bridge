@@ -42,14 +42,14 @@ class SupabaseAuth {
         return SessionTokens(r.getString("access_token"), r.getString("refresh_token"))
     }
     fun user(access: String): AuthUser {
-        val r = request("/auth/v1/user", method = "GET", bearer = access)
-        val identities = r.optJSONArray("identities")
-        val discord = identities != null && (0 until identities.length()).any { identities.optJSONObject(it)?.optString("provider") == "discord" }
-        if (!discord) error("Discord authentication is required for Atomos.")
-        val meta = r.optJSONObject("user_metadata") ?: JSONObject()
-        return AuthUser(r.getString("id"), r.optString("email").ifBlank { null },
-            meta.optString("global_name").ifBlank { meta.optString("username").ifBlank { "Atomos user" } },
-            meta.optString("avatar_url").ifBlank { null })
+        val r = request("/functions/v1/atomos-app-api", body = JSONObject().put("action", "profile"), bearer = access)
+        if (r.optString("provider") != "discord") error("Discord authentication is required for Atomos.")
+        return AuthUser(
+            r.getString("id"),
+            r.optString("email").ifBlank { null },
+            r.optString("display_name").ifBlank { "Atomos user" },
+            r.optString("avatar_url").ifBlank { null }
+        )
     }
     fun refresh(token: String): SessionTokens {
         val r = request("/auth/v1/token?grant_type=refresh_token", body = JSONObject().put("refresh_token", token))
