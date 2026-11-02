@@ -33,6 +33,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.documentfile.provider.DocumentFile
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -144,6 +145,8 @@ fun FileManagerScreen(
                     .orEmpty()
             }
             if (current?.uri == directory?.uri) entries = loaded
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             entries = emptyList()
             toast = e.message ?: "Unable to read this folder. Check its storage permission."
