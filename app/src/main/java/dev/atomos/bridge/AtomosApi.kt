@@ -13,7 +13,7 @@ data class AuthTokens(val accessToken: String, val refreshToken: String)
 data class ApiException(val status: Int, override val message: String): IllegalStateException(message)
 
 class AtomosApi {
-    private val base=BuildConfig.SUPABASE_URL.trimEnd("/")
+    private val base=BuildConfig.SUPABASE_URL.trimEnd('/')
     private val key=BuildConfig.SUPABASE_PUBLISHABLE_KEY
     private val redirectUri="dev.atomos.bridge://auth-callback"
     private val maxResponseBytes=64*1024
