@@ -30,6 +30,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.UUID
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.math.roundToInt
@@ -37,6 +38,37 @@ import kotlin.math.roundToInt
 private val Violet = androidx.compose.ui.graphics.Color(0xFF9B8CFF)
 private val Background = androidx.compose.ui.graphics.Color(0xFF090B12)
 private val SurfaceDark = androidx.compose.ui.graphics.Color(0xFF151A27)
+
+private const val MAX_PACKAGE_FILE_BYTES = 1_000_000_000L
+
+private fun copyUriToCache(context: android.content.Context, uri: Uri, displayName: String, prefix: String): File {
+    val extension = displayName.substringAfterLast('.', "").lowercase()
+        .filter { it.isLetterOrDigit() }
+        .take(12)
+    val suffix = if (extension.isBlank()) "" else ".$extension"
+    val target = File(context.cacheDir, "$prefix-${UUID.randomUUID()}$suffix")
+    try {
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            target.outputStream().buffered().use { output ->
+                val buffer = ByteArray(64 * 1024)
+                var copied = 0L
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    copied += count
+                    require(copied <= MAX_PACKAGE_FILE_BYTES) { "Selected package exceeds the 1 GB size limit." }
+                    output.write(buffer, 0, count)
+                }
+                output.flush()
+            }
+        } ?: error("Unable to read selected file.")
+        require(target.isFile && target.length() > 0L) { "Selected file is empty." }
+        return target
+    } catch (e: Exception) {
+        target.delete()
+        throw e
+    }
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -52,7 +84,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun AtomosApp(store: SecureStore, activityScope: CoroutineScope) {
     val context = LocalContext.current
-    // Activity-owned work survives temporary Compose screen removal (e.g. opening OAuth in a browser).
+    // Activity-owned work survives temporary Compose screen removal during system pickers and dialogs.
     val monitor = remember { NetworkMonitor(context) }
     var page by remember { mutableStateOf("Files") }
     var busy by remember { mutableStateOf(false) }
@@ -115,8 +147,7 @@ private fun AtomosApp(store: SecureStore, activityScope: CoroutineScope) {
             try {
                 val prepared = withContext(Dispatchers.IO) {
                     val name = DocumentFile.fromSingleUri(context, uri)?.name ?: "package.apk"
-                    val target = File(context.cacheDir, "picked-${System.currentTimeMillis()}-${name.substringAfterLast('/')}")
-                    context.contentResolver.openInputStream(uri)?.use { input -> target.outputStream().use { input.copyTo(it) } } ?: error("Unable to read selected file.")
+                    val target = copyUriToCache(context, uri, name, "picked")
                     ArchiveInstaller.prepare(context, target)
                 }
                 ArchiveInstaller.install(context, prepared.files)
@@ -166,8 +197,7 @@ private fun AtomosApp(store: SecureStore, activityScope: CoroutineScope) {
                             busy = true
                             try {
                                 val prepared = withContext(Dispatchers.IO) {
-                                    val target = File(context.cacheDir, "file-${System.currentTimeMillis()}-${file.name}")
-                                    context.contentResolver.openInputStream(file.uri)?.use { input -> target.outputStream().use { input.copyTo(it) } } ?: error("Unable to read selected file.")
+                                    val target = copyUriToCache(context, file.uri, file.name ?: "package.apk", "file")
                                     ArchiveInstaller.prepare(context, target)
                                 }
                                 ArchiveInstaller.install(context, prepared.files)
@@ -303,7 +333,7 @@ private fun AtomosApp(store: SecureStore, activityScope: CoroutineScope) {
                 Text("Local IP: " + ip.ifBlank { "Unavailable" })
                 Text("Android 10 and newer · Local-first utility suite")
                 Text("No account or sign-in required")
-                Text("Atomos 1.0.3")
+                Text("Atomos 1.0.4")
             }
         }
         Card(colors = CardDefaults.cardColors(containerColor = SurfaceDark)) {
