@@ -6,8 +6,8 @@ android {
   applicationId = "dev.atomos.bridge"
   minSdk = 29
   targetSdk = 35
-  versionCode = 12
-  versionName = "1.0.2"
+  versionCode = 13
+  versionName = "1.0.3"
  }
  signingConfigs { create("release") {
   storeFile = file("release-key.jks")
@@ -35,6 +35,8 @@ dependencies {
  implementation("androidx.core:core-ktx:1.15.0")
  implementation("androidx.core:core-splashscreen:1.0.1")
  implementation("androidx.documentfile:documentfile:1.0.1")
+ implementation("androidx.media3:media3-exoplayer:1.5.1")
+ implementation("androidx.media3:media3-ui:1.5.1")
  implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
  debugImplementation("androidx.compose.ui:ui-tooling")
 }

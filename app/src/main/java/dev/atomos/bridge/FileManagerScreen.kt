@@ -71,6 +71,8 @@ fun FileManagerScreen(
     var transferSource by remember { mutableStateOf<DocumentFile?>(null) }
     var transferMove by remember { mutableStateOf(false) }
     var toast by remember { mutableStateOf("") }
+    var previewFile by remember { mutableStateOf<DocumentFile?>(null) }
+    var busyFiles by remember { mutableStateOf(false) }
 
     val current = path.lastOrNull() ?: rootUri?.let { DocumentFile.fromTreeUri(context, it) }
     fun reload() {
@@ -163,6 +165,8 @@ fun FileManagerScreen(
         val ext = file.name?.substringAfterLast('.', "")?.lowercase().orEmpty()
         if (ext in setOf("apk", "apkm", "apks", "apkx", "xapk")) {
             onInstallPackage(file)
+        } else if (ext == "zip" || ext in setOf("txt","md","log","json","xml","csv","kt","java","js","ts","css","html","htm","yaml","yml","properties","gradle","sh","py","jpg","jpeg","png","webp","gif","bmp","heic","avif","mp3","m4a","aac","ogg","wav","flac","opus","mp4","mkv","mov","webm","3gp","m4v")) {
+            previewFile = file
         } else {
             runCatching {
                 val intent = Intent(Intent.ACTION_VIEW).apply {
@@ -170,7 +174,7 @@ fun FileManagerScreen(
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
                 context.startActivity(Intent.createChooser(intent, "Open with"))
-            }.onFailure { toast = "No app can open this file" }
+            }.onFailure { toast = "No compatible viewer found" }
         }
     }
     fun createFolder() {
@@ -305,6 +309,8 @@ fun FileManagerScreen(
         }
     }
 
+    if (busyFiles) AlertDialog(onDismissRequest = {}, title = { Text("Processing archive") }, text = { Row(verticalAlignment = Alignment.CenterVertically) { CircularProgressIndicator(); Spacer(Modifier.width(12.dp)); Text("Working locally…") } }, confirmButton = {})
+    previewFile?.let { file -> FilePreviewScreen(file, onBack = { previewFile = null }) }
     itemMenu?.let { file ->
         AlertDialog(
             onDismissRequest = { itemMenu = null },
@@ -312,6 +318,10 @@ fun FileManagerScreen(
             text = {
                 Column {
                     TextButton(onClick = { itemMenu = null; if (file.isDirectory) path.add(file) else openFile(file) }, modifier = Modifier.fillMaxWidth()) { Text("Open", modifier = Modifier.fillMaxWidth()) }
+                    if (!file.isDirectory && file.name?.substringAfterLast('.', "")?.lowercase() == "zip") {
+                        TextButton(onClick = { itemMenu = null; busyFiles = true; scope.launch { try { val n = withContext(Dispatchers.IO) { extractZip(context, file, current) }; toast = "Extracted $n entries"; reload() } catch (e: Exception) { toast = e.message ?: "Extraction failed" } finally { busyFiles = false } } }, modifier = Modifier.fillMaxWidth()) { Text("Extract here", modifier = Modifier.fillMaxWidth()) }
+                    }
+                    TextButton(onClick = { itemMenu = null; busyFiles = true; scope.launch { try { val result = withContext(Dispatchers.IO) { compressToZip(context, file, current) }; toast = "Created ${result.name}"; reload() } catch (e: Exception) { toast = e.message ?: "ZIP creation failed" } finally { busyFiles = false } } }, modifier = Modifier.fillMaxWidth()) { Text("Compress to ZIP", modifier = Modifier.fillMaxWidth()) }
                     if (!file.isDirectory) {
                         TextButton(onClick = { itemMenu = null; transferSource = file; transferMove = false; destinationPicker.launch(null) }, modifier = Modifier.fillMaxWidth()) { Text("Copy to…", modifier = Modifier.fillMaxWidth()) }
                         TextButton(onClick = { itemMenu = null; transferSource = file; transferMove = true; destinationPicker.launch(null) }, modifier = Modifier.fillMaxWidth()) { Text("Move to…", modifier = Modifier.fillMaxWidth()) }
@@ -402,4 +412,52 @@ private fun fileGlyph(file: DocumentFile): String {
         "doc", "docx", "txt", "rtf" -> "▤"
         else -> "•"
     }
+}
+
+private fun compressToZip(context: android.content.Context, source: DocumentFile, destination: DocumentFile?): DocumentFile {
+    val parent = destination ?: error("Choose a storage folder first.")
+    val stem = (source.name ?: "archive").substringBeforeLast('.', source.name ?: "archive")
+    var name = "$stem.zip"; var i = 1
+    while (parent.findFile(name) != null) { name = "$stem ($i).zip"; i++ }
+    val target = parent.createFile("application/zip", name) ?: error("Cannot create ZIP.")
+    try {
+        java.util.zip.ZipOutputStream(java.io.BufferedOutputStream(context.contentResolver.openOutputStream(target.uri, "w") ?: error("Cannot write ZIP."))).use { zip ->
+            val buffer = ByteArray(65536)
+            fun add(item: DocumentFile, entryPath: String) {
+                if (item.isDirectory) {
+                    val dirPath = if (entryPath.endsWith("/")) entryPath else "$entryPath/"
+                    zip.putNextEntry(java.util.zip.ZipEntry(dirPath)); zip.closeEntry()
+                    item.listFiles().forEach { add(it, "$dirPath${it.name ?: "unnamed"}") }
+                } else {
+                    zip.putNextEntry(java.util.zip.ZipEntry(entryPath))
+                    context.contentResolver.openInputStream(item.uri)?.use { input -> while (true) { val n = input.read(buffer); if (n < 0) break; zip.write(buffer, 0, n) } } ?: error("Cannot read ${item.name}.")
+                    zip.closeEntry()
+                }
+            }
+            add(source, source.name ?: "item")
+        }
+        return target
+    } catch (e: Exception) { target.delete(); throw e }
+}
+private fun extractZip(context: android.content.Context, archive: DocumentFile, destination: DocumentFile?): Int {
+    val root = destination ?: error("Choose a storage folder first.")
+    var count = 0; val buffer = ByteArray(65536)
+    java.util.zip.ZipInputStream(java.io.BufferedInputStream(context.contentResolver.openInputStream(archive.uri) ?: error("Cannot read ZIP."))).use { zip ->
+        while (true) {
+            val entry = zip.nextEntry ?: break
+            val normalized = entry.name.replace('\\\\', '/')
+            val parts = normalized.split('/').filter { it.isNotBlank() }
+            require(parts.none { it == "." || it == ".." || it.contains(':') }) { "Unsafe ZIP entry path rejected." }
+            var dir = root
+            parts.dropLast(if (entry.isDirectory) 0 else 1).forEach { part -> dir = dir.findFile(part) ?: dir.createDirectory(part) ?: error("Cannot create folder.") }
+            if (!entry.isDirectory && parts.isNotEmpty()) {
+                val output = dir.createFile("application/octet-stream", parts.last()) ?: error("Cannot create ${parts.last()}.")
+                try { context.contentResolver.openOutputStream(output.uri, "w")?.use { out -> while (true) { val n = zip.read(buffer); if (n < 0) break; out.write(buffer, 0, n) } } ?: error("Cannot write extracted file.") }
+                catch (e: Exception) { output.delete(); throw e }
+                count++
+            }
+            zip.closeEntry()
+        }
+    }
+    return count
 }
