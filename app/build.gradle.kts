@@ -1,10 +1,11 @@
 plugins { id("com.android.application"); id("org.jetbrains.kotlin.android"); id("org.jetbrains.kotlin.plugin.compose") }
 android {
  namespace="dev.atomos.bridge"; compileSdk=35
- defaultConfig { applicationId="dev.atomos.bridge"; minSdk=26; targetSdk=35; versionCode=7; versionName="0.3.2"
+ defaultConfig { applicationId="dev.atomos.bridge"; minSdk=26; targetSdk=35; versionCode=8; versionName="0.3.3"
   buildConfigField("String","SUPABASE_URL","\"https://swvlujplpqfppnhdhxyf.supabase.co\"")
   buildConfigField("String","SUPABASE_PUBLISHABLE_KEY","\"sb_publishable_mNuobCwjLhFaqdQ03faipw_WYmrt0Ni\"") }
  signingConfigs { create("release"){storeFile=file("release-key.jks");storePassword=System.getenv("ANDROID_SIGNING_STORE_PASSWORD");keyAlias=System.getenv("ANDROID_SIGNING_KEY_ALIAS");keyPassword=System.getenv("ANDROID_SIGNING_KEY_PASSWORD")} }
+ splits { abi { isEnable = true; reset(); include("arm64-v8a", "armeabi-v7a", "x86_64"); isUniversalApk = true } }
  buildTypes { debug{buildConfigField("boolean","BRIDGE_DEBUG","true")};release{buildConfigField("boolean","BRIDGE_DEBUG","false");signingConfig=signingConfigs.getByName("release");isMinifyEnabled=false} }
  buildFeatures{compose=true;buildConfig=true}
  compileOptions{sourceCompatibility=JavaVersion.VERSION_17;targetCompatibility=JavaVersion.VERSION_17}
