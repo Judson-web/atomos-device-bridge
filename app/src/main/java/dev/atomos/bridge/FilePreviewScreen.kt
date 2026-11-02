@@ -60,15 +60,16 @@ fun FilePreviewScreen(file: DocumentFile, onBack: () -> Unit) {
             }
         } catch (e: Exception) { previewError = e.message ?: "Cannot preview file." } finally { loading = false }
     }
+    val viewerLabel = when {
+        ext == "zip" -> "ZIP contents"
+        ext in setOf("html","htm") -> "HTML viewer"
+        ext in setOf("mp3","m4a","aac","ogg","wav","flac","opus") -> "Music player"
+        ext in setOf("mp4","mkv","mov","webm","3gp","m4v") -> "Video player"
+        ext in setOf("jpg","jpeg","png","webp","gif","bmp","heic","avif") -> "Image viewer"
+        else -> "Text editor"
+    }
     Scaffold(topBar = {
-        TopAppBar(title = { Column { Text(name, maxLines = 1); Text(when {
-            ext == "zip" -> "ZIP contents"
-            ext in setOf("html","htm") -> "HTML viewer"
-            ext in setOf("mp3","m4a","aac","ogg","wav","flac","opus") -> "Music player"
-            ext in setOf("mp4","mkv","mov","webm","3gp","m4v") -> "Video player"
-            ext in setOf("jpg","jpeg","png","webp","gif","bmp","heic","avif") -> "Image viewer"
-            else -> "Text editor"
-        }, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary) } },
+        TopAppBar(title = { Column { Text(name, maxLines = 1); Text(viewerLabel, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary) } },
         navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") } },
         actions = { if (ext in setOf("txt","md","log","json","xml","csv","kt","java","js","ts","css","yaml","yml","properties","gradle","sh","py")) IconButton(enabled = dirty && !saving, onClick = { saving = true }) { Icon(Icons.Default.Save, contentDescription = "Save") } }
     }) { padding ->

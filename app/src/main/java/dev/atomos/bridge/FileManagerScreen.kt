@@ -445,7 +445,7 @@ private fun extractZip(context: android.content.Context, archive: DocumentFile, 
     java.util.zip.ZipInputStream(java.io.BufferedInputStream(context.contentResolver.openInputStream(archive.uri) ?: error("Cannot read ZIP."))).use { zip ->
         while (true) {
             val entry = zip.nextEntry ?: break
-            val normalized = entry.name.replace('\\\\', '/')
+            val normalized = entry.name.replace('\\', '/')
             val parts = normalized.split('/').filter { it.isNotBlank() }
             require(parts.none { it == "." || it == ".." || it.contains(':') }) { "Unsafe ZIP entry path rejected." }
             var dir = root
