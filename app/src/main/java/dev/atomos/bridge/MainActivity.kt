@@ -124,7 +124,7 @@ private fun BridgeDashboard(store: SecureStore, api: AtomosApi, openAccessibilit
                 else -> {
                     Text("SECURE PAIRING", color = Muted, fontSize = 10.sp, letterSpacing = 2.sp)
                     Button(onClick = { task {
-                        val extra = JSONObject().put("device_name", "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}").put("app_version", "0.2.0")
+                        val extra = JSONObject().put("device_name", "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}").put("app_version", "0.2.1")
                         val challenge = api.callAsUser("create_pairing", store, extra)
                         val claimed = api.callAsUser("claim_pairing", store, JSONObject()
                             .put("code", challenge.getString("code"))
