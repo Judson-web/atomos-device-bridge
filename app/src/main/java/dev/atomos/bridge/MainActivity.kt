@@ -3,7 +3,6 @@ package dev.atomos.bridge
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.provider.DocumentsContract
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -25,7 +24,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.documentfile.provider.DocumentFile
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -41,29 +39,21 @@ private val Background = androidx.compose.ui.graphics.Color(0xFF090B12)
 private val SurfaceDark = androidx.compose.ui.graphics.Color(0xFF151A27)
 
 class MainActivity : ComponentActivity() {
-    private var authCallback by mutableStateOf<Uri?>(null)
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
-        authCallback = intent?.data
         val store = SecureStore(this)
-        setContent { AtomosApp(store, authCallback, { authCallback = null }, { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it))) }, lifecycleScope) }
+        store.remove("access", "refresh", "oauth_verifier")
+        setContent { AtomosApp(store, lifecycleScope) }
     }
-    override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); authCallback = intent.data }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> Unit, openBrowser: (String) -> Unit, activityScope: CoroutineScope) {
+private fun AtomosApp(store: SecureStore, activityScope: CoroutineScope) {
     val context = LocalContext.current
     // Activity-owned work survives temporary Compose screen removal (e.g. opening OAuth in a browser).
-    val auth = remember { SupabaseAuth() }
     val monitor = remember { NetworkMonitor(context) }
-    var user by remember { mutableStateOf<AuthUser?>(null) }
-    var access by remember { mutableStateOf(store.get("access")) }
-    var authState by remember { mutableStateOf(if (access.isNullOrBlank()) "signed_out" else "checking") }
-    var authError by remember { mutableStateOf<String?>(null) }
-    var authLaunching by remember { mutableStateOf(false) }
     var page by remember { mutableStateOf("Files") }
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("Ready") }
@@ -135,57 +125,6 @@ private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> U
             finally { busy = false }
         }
     }
-    LaunchedEffect(callback) {
-        val uri = callback ?: return@LaunchedEffect
-        clearCallback()
-        authState = "checking"
-        authLaunching = false
-        val code = uri.getQueryParameter("code")
-        val oauthError = uri.getQueryParameter("error_description") ?: uri.getQueryParameter("error")
-        val verifier = store.get("oauth_verifier")
-        try {
-            if (!oauthError.isNullOrBlank()) error(oauthError)
-            require(!code.isNullOrBlank() && !verifier.isNullOrBlank()) { "Discord sign-in could not be completed." }
-            val tokens = withContext(Dispatchers.IO) { auth.exchange(code, verifier) }
-            val profile = withContext(Dispatchers.IO) { auth.user(tokens.access) }
-            store.put("access", tokens.access); store.put("refresh", tokens.refresh); store.remove("oauth_verifier")
-            access = tokens.access; user = profile; authState = "authenticated"; authError = null; status = "Signed in with Discord."
-        } catch (e: Exception) {
-            store.remove("access", "refresh", "oauth_verifier"); access = null; user = null
-            authState = "signed_out"; authError = e.message ?: "Please try again."
-            status = "Authentication failed."
-        }
-    }
-    LaunchedEffect(access) {
-        if (callback != null) return@LaunchedEffect
-        val token = access
-        if (token.isNullOrBlank()) {
-            user = null
-            authState = "signed_out"
-            return@LaunchedEffect
-        }
-        authState = "checking"
-        try {
-            user = withContext(Dispatchers.IO) { auth.user(token) }
-            authState = "authenticated"
-            authError = null
-        } catch (_: Exception) {
-            val refresh = store.get("refresh")
-            if (refresh != null) {
-                try {
-                    val tokens = withContext(Dispatchers.IO) { auth.refresh(refresh) }
-                    val profile = withContext(Dispatchers.IO) { auth.user(tokens.access) }
-                    store.put("access", tokens.access); store.put("refresh", tokens.refresh)
-                    access = tokens.access; user = profile; authState = "authenticated"
-                } catch (e: Exception) {
-                    store.remove("access", "refresh"); access = null; user = null
-                    authState = "signed_out"; authError = e.message ?: "Your session expired. Sign in again."
-                }
-            } else {
-                store.remove("access"); access = null; user = null; authState = "signed_out"
-            }
-        }
-    }
     LaunchedEffect(Unit) {
         var prev = monitor.counters()
         var last = System.currentTimeMillis()
@@ -198,29 +137,8 @@ private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> U
         }
     }
     LaunchedEffect(folderUri) { currentDirectory = folderUri?.let { DocumentFile.fromTreeUri(context, it) }; refreshFiles(currentDirectory) }
-    val beginSignIn: () -> Unit = {
-        activityScope.launch {
-            authError = null
-            authLaunching = true
-            try {
-                val verifier = auth.verifier()
-                store.put("oauth_verifier", verifier)
-                openBrowser(auth.discordUrl(verifier))
-                authLaunching = false
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (e: Exception) {
-                authLaunching = false
-                authError = e.message ?: "Unable to start Discord sign-in."
-            }
-        }
-    }
     MaterialTheme(colorScheme = darkColorScheme(primary = Violet, background = Background, surface = SurfaceDark)) {
-        if (authState == "checking") {
-            AuthLoadingScreen()
-        } else if (authState != "authenticated" || user == null) {
-            AuthGateScreen(error = authError, launching = authLaunching, onSignIn = beginSignIn)
-        } else Scaffold(
+        Scaffold(
             containerColor = Background,
             topBar = {
                 if (page != "Files") CenterAlignedTopAppBar(
@@ -261,7 +179,7 @@ private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> U
                 )
             } else Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 18.dp)) {
                 when (page) {
-                    "Home" -> HomePage(network, user, status, onNetwork = { page = "Network" }, onFiles = { page = "Files" }, onInstaller = { page = "Installer" }, onSpeed = { page = "Network" })
+                    "Home" -> HomePage(network, status, onNetwork = { page = "Network" }, onFiles = { page = "Files" }, onInstaller = { page = "Installer" }, onSpeed = { page = "Network" })
                     "Network" -> NetworkPage(network, speedResult, speedBusy, speedProgress) {
                         if (!speedBusy) activityScope.launch {
                             speedBusy = true; speedProgress = 0f
@@ -271,9 +189,7 @@ private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> U
                         }
                     }
                     "Installer" -> InstallerPage(status, busy, { filePicker.launch(arrayOf("*/*")) }, { status = "Supported: APK, APKM, APKS, APKX and XAPK. Split archives are installed as one package session." })
-                    "Settings" -> SettingsPage(user, status, beginSignIn, {
-                        store.remove("access", "refresh", "oauth_verifier"); access = null; user = null; authState = "signed_out"; authError = null; status = "Signed out."
-                    }, network.ipAddress)
+                    "Settings" -> SettingsPage(status, network.ipAddress)
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(status, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 8.dp))
@@ -282,7 +198,7 @@ private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> U
     }
 }
 
-@Composable private fun HomePage(n: NetworkSnapshot, user: AuthUser?, status: String, onNetwork: () -> Unit, onFiles: () -> Unit, onInstaller: () -> Unit, onSpeed: () -> Unit) {
+@Composable private fun HomePage(n: NetworkSnapshot, status: String, onNetwork: () -> Unit, onFiles: () -> Unit, onInstaller: () -> Unit, onSpeed: () -> Unit) {
     LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 18.dp)) {
         item { Text("Your device, at a glance.", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
         item { Card(colors = CardDefaults.cardColors(containerColor = SurfaceDark), shape = RoundedCornerShape(24.dp)) {
@@ -293,7 +209,7 @@ private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> U
                     Column { Text("DOWNLOAD", style = MaterialTheme.typography.labelSmall); Text(formatRate(n.downloadBps), fontWeight = FontWeight.Bold) }
                     Column { Text("UPLOAD", style = MaterialTheme.typography.labelSmall); Text(formatRate(n.uploadBps), fontWeight = FontWeight.Bold) }
                 }
-                Text(if (user == null) "Discord sign-in available in Settings" else "Signed in as ${user.name}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Live device connectivity and throughput", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } }
         item { UtilityCard("Network monitor", "Live connection, throughput, IP and speed test", "↗", onNetwork) }
@@ -378,22 +294,24 @@ private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> U
         Text("Android may ask you to allow Atomos to install unknown apps. You remain in control of the final system installation prompt.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
-@Composable private fun SettingsPage(user: AuthUser?, status: String, signIn: () -> Unit, signOut: () -> Unit, ip: String) {
+@Composable private fun SettingsPage(status: String, ip: String) {
     Column(Modifier.fillMaxSize().padding(vertical = 22.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("Settings", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        Card(colors = CardDefaults.cardColors(containerColor = SurfaceDark)) { Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Account", color = Violet, fontWeight = FontWeight.Bold)
-            Text(user?.name ?: "Not signed in", style = MaterialTheme.typography.titleLarge)
-            Text(user?.email ?: "Discord authentication")
-            if (user == null) Button(onClick = signIn, modifier = Modifier.fillMaxWidth()) { Text("Continue with Discord") }
-            else OutlinedButton(onClick = signOut, modifier = Modifier.fillMaxWidth()) { Text("Sign out") }
-        } }
-        Card(colors = CardDefaults.cardColors(containerColor = SurfaceDark)) { Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Device", color = Violet, fontWeight = FontWeight.Bold)
-            Text("Local IP: ${ip.ifBlank { "Unavailable" }}")
-            Text("Android 10 and newer · Modular utility modules")
-            Text("Atomos 1.0.0")
-        } }
+        Card(colors = CardDefaults.cardColors(containerColor = SurfaceDark)) {
+            Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Device", color = Violet, fontWeight = FontWeight.Bold)
+                Text("Local IP: " + ip.ifBlank { "Unavailable" })
+                Text("Android 10 and newer · Local-first utility suite")
+                Text("No account or sign-in required")
+                Text("Atomos 1.0.2")
+            }
+        }
+        Card(colors = CardDefaults.cardColors(containerColor = SurfaceDark)) {
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Activity", color = Violet, fontWeight = FontWeight.Bold)
+                Text(status)
+            }
+        }
     }
 }
 private fun runSpeedTest(progress: (Float) -> Unit): String {
