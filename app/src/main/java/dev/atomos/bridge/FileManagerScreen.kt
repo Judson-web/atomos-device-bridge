@@ -53,6 +53,7 @@ fun FileManagerScreen(
     var entries by remember { mutableStateOf(emptyList<DocumentFile>()) }
     var loading by remember { mutableStateOf(false) }
     var drawerOpen by remember { mutableStateOf(false) }
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
     var searchOpen by remember { mutableStateOf(false) }
     var search by remember { mutableStateOf("") }
     var grid by remember { mutableStateOf(false) }
@@ -135,6 +136,7 @@ fun FileManagerScreen(
     }
 
     LaunchedEffect(rootUri, path.size, path.lastOrNull()?.uri, showHidden) { reload() }
+    LaunchedEffect(drawerOpen) { if (drawerOpen) drawerState.open() else drawerState.close() }
 
     val filtered = remember(entries, search, category, sortBy) {
         entries.filter { file ->
@@ -191,7 +193,7 @@ fun FileManagerScreen(
     }
 
     ModalNavigationDrawer(
-        drawerState = rememberDrawerState(if (drawerOpen) DrawerValue.Open else DrawerValue.Closed),
+        drawerState = drawerState,
         gesturesEnabled = true,
         drawerContent = {
             ModalDrawerSheet(drawerContainerColor = FileSurface, drawerContentColor = MaterialTheme.colorScheme.onSurface) {
@@ -303,17 +305,23 @@ fun FileManagerScreen(
     }
 
     itemMenu?.let { file ->
-        var expanded by remember(file.uri) { mutableStateOf(true) }
-        DropdownMenu(expanded = expanded, onDismissRequest = { itemMenu = null; expanded = false }) {
-            DropdownMenuItem(text = { Text("Open") }, onClick = { itemMenu = null; if (file.isDirectory) path.add(file) else openFile(file) })
-            if (!file.isDirectory) {
-                DropdownMenuItem(text = { Text("Copy to…") }, onClick = { itemMenu = null; transferSource = file; transferMove = false; destinationPicker.launch(null) })
-                DropdownMenuItem(text = { Text("Move to…") }, onClick = { itemMenu = null; transferSource = file; transferMove = true; destinationPicker.launch(null) })
-            }
-            DropdownMenuItem(text = { Text("Rename") }, onClick = { itemMenu = null; renameTarget = file; renameName = file.name.orEmpty() })
-            DropdownMenuItem(text = { Text("Details") }, onClick = { itemMenu = null; detailsTarget = file })
-            DropdownMenuItem(text = { Text("Delete", color = MaterialTheme.colorScheme.error) }, onClick = { itemMenu = null; deleteFile(file) })
-        }
+        AlertDialog(
+            onDismissRequest = { itemMenu = null },
+            title = { Text(file.name ?: "File options", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            text = {
+                Column {
+                    TextButton(onClick = { itemMenu = null; if (file.isDirectory) path.add(file) else openFile(file) }, modifier = Modifier.fillMaxWidth()) { Text("Open", modifier = Modifier.fillMaxWidth()) }
+                    if (!file.isDirectory) {
+                        TextButton(onClick = { itemMenu = null; transferSource = file; transferMove = false; destinationPicker.launch(null) }, modifier = Modifier.fillMaxWidth()) { Text("Copy to…", modifier = Modifier.fillMaxWidth()) }
+                        TextButton(onClick = { itemMenu = null; transferSource = file; transferMove = true; destinationPicker.launch(null) }, modifier = Modifier.fillMaxWidth()) { Text("Move to…", modifier = Modifier.fillMaxWidth()) }
+                    }
+                    TextButton(onClick = { itemMenu = null; renameTarget = file; renameName = file.name.orEmpty() }, modifier = Modifier.fillMaxWidth()) { Text("Rename", modifier = Modifier.fillMaxWidth()) }
+                    TextButton(onClick = { itemMenu = null; detailsTarget = file }, modifier = Modifier.fillMaxWidth()) { Text("Details", modifier = Modifier.fillMaxWidth()) }
+                    TextButton(onClick = { itemMenu = null; deleteFile(file) }, modifier = Modifier.fillMaxWidth()) { Text("Delete", color = MaterialTheme.colorScheme.error, modifier = Modifier.fillMaxWidth()) }
+                }
+            },
+            confirmButton = { TextButton(onClick = { itemMenu = null }) { Text("Close") } }
+        )
     }
 
     if (createDialog) AlertDialog(
