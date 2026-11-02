@@ -1,42 +1,51 @@
 # Atomos
 
-Android cloud-control companion. Current source: **0.3.0**.
+Atomos is a modular Android utility suite focused on network visibility, local file management and package installation. The previous cloud-device-control prototype has been retired; its remote accessibility, SMS and device-command code is not part of this application.
 
-## Included in this milestone
-- Custom Atomos adaptive launcher mark and Android 12+ splash branding.
-- GitHub-only Supabase OAuth PKCE and encrypted Android Keystore credentials.
-- Devices registered to the same GitHub-linked Supabase user are owned by the same account.
-- Secure pairing, device verification and owner-only device revocation.
-- Cloud command queue with short expiry, owner validation, device-token polling, acknowledgements and command history.
-- Android foreground cloud listener, explicitly started by the user and represented by a persistent notification.
-- Compose interface with drawer and Home, Control, Devices, Settings and About destinations.
-- Accessibility execution for inspect, tap, swipe, back, home, notifications and focused-field text entry.
+## Current foundation
 
-## Cloud command API
-All requests are POST requests to `/functions/v1/atomos-device-bridge` with the publishable `apikey` and a user Bearer token for owner actions. The Android listener uses `x-device-token` for device actions.
+- Native Kotlin + Jetpack Compose application.
+- Android 10 (API 29) and newer.
+- Discord OAuth through Supabase Auth using PKCE.
+- Encrypted local session storage backed by Android Keystore.
+- Live network connectivity, transport, validated-internet state, local IP and device-wide RX/TX throughput.
+- Internet speed test with download, upload, latency and jitter measurements.
+- Storage Access Framework file browser. Atomos only sees folders explicitly granted by the user.
+- APK, APKM, APKS, APKX and XAPK archive inspection and local installation through Android PackageInstaller, including multi-APK split sessions.
+- ABI-specific APKs plus a universal APK.
+- Utility tiles are independent UI modules, ready for future additions.
 
-Owner actions:
-- `create_command`: `device_id`, `command_type`, `payload`, optional `ttl_seconds`.
-- `list_commands`: `device_id`.
-- `cancel_command`: `command_id`.
-- `list_devices`, `revoke_device`.
+## Authentication
 
-Device actions:
-- `poll_command` claims one queued command.
-- `complete_command` acknowledges a claimed command with `command_id`, `success`, `result`, and optional `error`.
+Configure the Discord provider in the Supabase project under Authentication > Sign In / Providers > Discord. Set the Discord OAuth client credentials and add the Supabase callback URL to the Discord developer application. The app uses the dev.atomos.bridge://auth-callback redirect URI. Configure this URI in the Supabase redirect allow-list.
 
-Supported command types: `inspect`, `tap`, `swipe`, `back`, `home`, `notifications`, `type`. Commands expire after 10-120 seconds. The device only polls while the user has started the foreground connection. Android AccessibilityService must also be enabled.
+There is no GitHub-user allow-list or single-device restriction. Each Discord-authenticated Supabase user can use the app on their own devices. Access tokens are stored encrypted using Android Keystore.
 
-## Important boundaries
-This milestone provides the Android cloud command relay and an authenticated REST control surface. A hosted browser dashboard and a standards-compliant MCP server transport are **not included yet**. Live screen streaming and MediaProjection are also not included; screen capture must use Android's explicit consent flow. Notification content is not collected. Remote commands cannot bypass Android permission prompts or OS restrictions.
+## APK signing
 
-## Security
-- GitHub OAuth is the only sign-in provider in the app.
-- User actions verify the Supabase session with `auth.getUser()`.
-- A user can issue commands only to active devices owned by that same Supabase user.
-- Device sessions are random 256-bit tokens; only SHA-256 hashes are stored server-side.
-- Command payloads are bounded, commands are short-lived, and device tokens are revocable.
-- Service-role credentials remain exclusively server-side; no ADB shell or cleartext HTTP is used.
+Release builds retain the existing Atomos APK signing identity. GitHub Actions expects these repository secrets:
+
+- ANDROID_SIGNING_KEY_BASE64
+- ANDROID_SIGNING_STORE_PASSWORD
+- ANDROID_SIGNING_KEY_ALIAS
+- ANDROID_SIGNING_KEY_PASSWORD
+
+Do not generate a replacement keystore for routine releases. Losing the original signing key would prevent seamless updates over already installed signed builds.
 
 ## Build
-JDK 17, Android SDK 35, Gradle 8.9. Package: `dev.atomos.bridge`. GitHub Actions builds debug APKs on main pushes and signed APKs on version tags.
+
+- JDK 17
+- Android SDK 35
+- Gradle 8.9
+- gradle :app:assembleDebug
+- gradle :app:assembleRelease
+
+GitHub Actions builds debug and signed release APKs, publishes signed APKs to GitHub Releases, and includes ABI variants and a universal APK.
+
+## Privacy and platform behavior
+
+- File access is granted through Android's Storage Access Framework; there is no broad storage permission.
+- Package installation always passes through Android's system installer and user confirmation.
+- Network throughput uses Android traffic counters and represents total device traffic, not only Atomos traffic.
+- Speed tests use Cloudflare's public speed measurement endpoints. Network results depend on routing, server distance and carrier policies.
+- No SMS, accessibility, notification-listener, remote-control, or always-running background service permissions are requested.
