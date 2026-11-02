@@ -10,6 +10,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -24,6 +25,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.documentfile.provider.DocumentFile
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -44,16 +47,16 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         authCallback = intent?.data
         val store = SecureStore(this)
-        setContent { AtomosApp(store, authCallback, { authCallback = null }, { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it))) }) }
+        setContent { AtomosApp(store, authCallback, { authCallback = null }, { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it))) }, lifecycleScope) }
     }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); authCallback = intent.data }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> Unit, openBrowser: (String) -> Unit) {
+private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> Unit, openBrowser: (String) -> Unit, activityScope: CoroutineScope) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
+    // Activity-owned work survives temporary Compose screen removal (e.g. opening OAuth in a browser).
     val auth = remember { SupabaseAuth() }
     val monitor = remember { NetworkMonitor(context) }
     var user by remember { mutableStateOf<AuthUser?>(null) }
@@ -89,7 +92,7 @@ private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> U
         val source = transferSource
         if (uri != null && source != null) {
             runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION) }
-            scope.launch {
+            activityScope.launch {
                 try {
                     withContext(Dispatchers.IO) {
                         val targetDir = DocumentFile.fromTreeUri(context, uri) ?: error("Unable to open destination folder.")
@@ -204,6 +207,8 @@ private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> U
                 store.put("oauth_verifier", verifier)
                 openBrowser(auth.discordUrl(verifier))
                 authLaunching = false
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 authLaunching = false
                 authError = e.message ?: "Unable to start Discord sign-in."
