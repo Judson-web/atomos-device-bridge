@@ -12,7 +12,7 @@ data class SessionTokens(val access: String, val refresh: String)
 data class AuthUser(val id: String, val email: String?, val name: String?, val avatar: String?)
 
 class SupabaseAuth {
-    private val base = BuildConfig.SUPABASE_URL.trimEnd("/")
+    private val base = BuildConfig.SUPABASE_URL.trimEnd('/')
     private val key = BuildConfig.SUPABASE_PUBLISHABLE_KEY
     private val redirect = "dev.atomos.bridge://auth-callback"
     private fun request(path: String, method: String = "POST", body: JSONObject? = null, bearer: String? = null): JSONObject {
