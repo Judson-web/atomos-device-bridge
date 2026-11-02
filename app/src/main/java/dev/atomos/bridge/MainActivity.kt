@@ -3,180 +3,346 @@ package dev.atomos.bridge
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.provider.Settings
-import androidx.core.content.ContextCompat
+import android.provider.DocumentsContract
+import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.compose.material3.DrawerValue
-import androidx.compose.material3.rememberDrawerState
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.text.font.FontWeight
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.documentfile.provider.DocumentFile
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
-import java.text.DateFormat
-import java.util.Date
+import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
+import kotlin.math.roundToInt
 
-private val Ink=Color(0xFF080A11);private val Panel=Color(0xFF141927);private val Violet=Color(0xFF9B8CFF);private val Muted=Color(0xFF9AA4B9)
-class MainActivity:ComponentActivity(){
-    private var callback by mutableStateOf<Uri?>(null)
-    override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState);callback=intent?.data;val store=SecureStore(this);val api=AtomosApi()
-        setContent { AtomosApp(store,api,callback,{callback=null;startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(it)))},{startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))},{number,body->startActivity(Intent(Intent.ACTION_SENDTO,Uri.parse("smsto:"+Uri.encode(number))).putExtra("sms_body",body))},{SmsReader.readLastSevenDays(this)},{ContextCompat.startForegroundService(this,Intent(this,CloudCommandService::class.java).setAction(CloudCommandService.ACTION_START))},{startService(Intent(this,CloudCommandService::class.java).setAction(CloudCommandService.ACTION_STOP))}) }
+private val Violet = androidx.compose.ui.graphics.Color(0xFF9B8CFF)
+private val Background = androidx.compose.ui.graphics.Color(0xFF090B12)
+private val SurfaceDark = androidx.compose.ui.graphics.Color(0xFF151A27)
+
+class MainActivity : ComponentActivity() {
+    private var authCallback by mutableStateOf<Uri?>(null)
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        authCallback = intent?.data
+        val store = SecureStore(this)
+        setContent { AtomosApp(store, authCallback, { authCallback = null }, { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it))) }) }
     }
-    override fun onNewIntent(intent:Intent){super.onNewIntent(intent);setIntent(intent);callback=intent.data}
+    override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); authCallback = intent.data }
 }
+
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable private fun AtomosApp(store:SecureStore,api:AtomosApi,callback:Uri?,openOAuth:(String)->Unit,openAccessibility:()->Unit,composeSms:(String,String)->Unit,readSms:()->List<SmsMessageItem>,startCloud:()->Unit,stopCloud:()->Unit){
-    val context=LocalContext.current
-    val scope=rememberCoroutineScope();var stage by remember { mutableStateOf(if(store.get("access")!=null)"signed" else "github") };var page by remember { mutableStateOf("Home") };var drawer by remember { mutableStateOf(false) }
-    var busy by remember { mutableStateOf(false) };var message by remember { mutableStateOf("Your personal cloud-connected device bridge.") }
-    var deviceId by remember { mutableStateOf(store.get("device_id").orEmpty()) };var token by remember { mutableStateOf(store.get("device_token")) }
-    var localMessages by remember { mutableStateOf(listOf<SmsMessageItem>()) };var devices by remember { mutableStateOf(listOf<JSONObject>()) };var commands by remember { mutableStateOf(listOf<JSONObject>()) };var cloudActive by remember { mutableStateOf(false) }
-    var x by remember { mutableStateOf("300") };var y by remember { mutableStateOf("600") };var inputText by remember { mutableStateOf("") };var smsNumber by remember { mutableStateOf("") };var smsBody by remember { mutableStateOf("") };var confirmSms by remember { mutableStateOf(false) };var authFailed by remember { mutableStateOf(false) }
-    val owner=LocalLifecycleOwner.current
-    fun runTask(block:suspend()->Unit){if(busy)return;busy=true;scope.launch{try{block()}catch(e:Exception){message=e.message?: "Request failed"}finally{busy=false}}}
-    fun send(type:String,payload:JSONObject=JSONObject()){runTask{val r=withContext(Dispatchers.IO){api.callAsUser("create_command",store,JSONObject().put("device_id",deviceId).put("command_type",type).put("payload",payload))};message="Command queued: $type";}}
-    LaunchedEffect(callback){val uri=callback?:return@LaunchedEffect;val code=uri.getQueryParameter("code");val verifier=store.get("github_pkce_verifier");try{require(!code.isNullOrBlank()&&!verifier.isNullOrBlank());val t=withContext(Dispatchers.IO){api.exchangeGitHubCode(code,verifier)};val allowed=withContext(Dispatchers.IO){api.githubIdentityAllowed(t.accessToken)};if(!allowed){store.remove("access","refresh","github_pkce_verifier");stage="github";authFailed=true;message="This GitHub account is not authorized to use Atomos."}else{store.put("access",t.accessToken);store.put("refresh",t.refreshToken);store.remove("github_pkce_verifier");stage="signed";message="Authorized GitHub account connected."}}catch(e:Exception){store.remove("access","refresh","github_pkce_verifier");stage="github";authFailed=true;message="Authentication failed. Only the registered GitHub account can access Atomos."}}
-    LaunchedEffect(Unit){val existing=store.get("access");if(existing!=null){val allowed=withContext(Dispatchers.IO){runCatching{api.githubIdentityAllowed(existing)}.getOrDefault(false)};if(!allowed){store.remove("access","refresh");stage="github";authFailed=true;message="Saved session is not authorized. Sign in with the registered GitHub account."}}}
-    LaunchedEffect(token){if(token!=null){try{val r=withContext(Dispatchers.IO){api.call("device_status",device=token)};message=if(r.optBoolean("authenticated"))"Cloud device verified" else "Device unavailable"}catch(e:Exception){message=e.message?: "Device offline"}}}
-    DisposableEffect(owner){val o=LifecycleEventObserver{_,e->if(e==Lifecycle.Event.ON_RESUME)cloudActive=CloudCommandService::class.java.let { false }};owner.lifecycle.addObserver(o);onDispose{owner.lifecycle.removeObserver(o)}}
-    val smsPermissionLauncher=rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()){ granted -> if(granted) runTask { localMessages=withContext(Dispatchers.IO){readSms()};message="Loaded ${localMessages.size} messages from the last seven days." } else message="SMS access was not granted." }
-    val nav=listOf("Home","Control","Messages","Devices","Settings","About")
-    val drawerState=rememberDrawerState(DrawerValue.Closed)
-    LaunchedEffect(drawer){ if(drawer) drawerState.open() else drawerState.close() }
-    MaterialTheme(colorScheme=darkColorScheme(primary=Violet,background=Ink,surface=Panel,onSurface=Color.White)){
-        ModalNavigationDrawer(drawerState=drawerState,drawerContent={ModalDrawerSheet(drawerContainerColor=Panel){
-            Column(Modifier.fillMaxWidth().padding(22.dp)){Text("ATOMOS",color=Violet,fontWeight=FontWeight.Black,letterSpacing=4.sp,fontSize=13.sp);Text("Cloud device bridge",color=Muted,fontSize=12.sp)}
-            nav.forEach{item->NavigationDrawerItem(label={Text(item)},selected=page==item,onClick={page=item;drawer=false},icon={Icon(when(item){"Home"->Icons.Default.Home;"Control"->Icons.Default.Gamepad;"Devices"->Icons.Default.Devices;"Settings"->Icons.Default.Settings;else->Icons.Default.Info},null)},modifier=Modifier.padding(horizontal=12.dp))}
-        }}) {
-            Scaffold(
-                containerColor = Ink,
-                topBar = {
-                    CenterAlignedTopAppBar(
-                        title = { Text("Atomos", fontWeight = FontWeight.Bold) },
-                        navigationIcon = {
-                            IconButton(onClick = { drawer = true }) {
-                                Icon(Icons.Default.Menu, contentDescription = "Menu")
-                            }
-                        },
-                        actions = {
-                            Icon(Icons.Default.Brightness2, contentDescription = null, tint = Violet)
-                            Spacer(Modifier.width(12.dp))
-                        },
-                        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                            containerColor = Ink,
-                            titleContentColor = Color.White
-                        )
-                    )
-                },
-                bottomBar = {
-                    NavigationBar(containerColor = Panel) {
-                        nav.take(5).forEach { item ->
-                            NavigationBarItem(
-                                selected = page == item,
-                                onClick = { page = item },
-                                icon = {
-                                    Icon(
-                                        when (item) {
-                                            "Home" -> Icons.Default.Home
-                                            "Control" -> Icons.Default.Gamepad
-                                            "Devices" -> Icons.Default.Devices
-                                            "Messages" -> Icons.Default.Mail
-                                            else -> Icons.Default.Settings
-                                        },
-                                        contentDescription = item
-                                    )
-                                },
-                                label = { Text(item) }
-                            )
-                        }
+@Composable
+private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> Unit, openBrowser: (String) -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val auth = remember { SupabaseAuth() }
+    val monitor = remember { NetworkMonitor(context) }
+    var user by remember { mutableStateOf<AuthUser?>(null) }
+    var access by remember { mutableStateOf(store.get("access")) }
+    var page by remember { mutableStateOf("Home") }
+    var busy by remember { mutableStateOf(false) }
+    var status by remember { mutableStateOf("Ready") }
+    var network by remember { mutableStateOf(NetworkSnapshot(false, "Offline", false, 0, 0, "")) }
+    var folderUri by remember { mutableStateOf<Uri?>(store.get("folder_uri")?.let(Uri::parse)) }
+    var currentFolder by remember { mutableStateOf<Uri?>(null) }
+    var entries by remember { mutableStateOf(listOf<DocumentFile>()) }
+    var folderName by remember { mutableStateOf("") }
+    var renameTarget by remember { mutableStateOf<DocumentFile?>(null) }
+    var renameValue by remember { mutableStateOf("") }
+    var speedResult by remember { mutableStateOf("Run a test to measure your connection.") }
+    var speedBusy by remember { mutableStateOf(false) }
+    var speedProgress by remember { mutableFloatStateOf(0f) }
+    val treePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION) }
+            folderUri = uri; currentFolder = uri; store.put("folder_uri", uri.toString())
+        }
+    }
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) scope.launch {
+            busy = true
+            try {
+                val prepared = withContext(Dispatchers.IO) {
+                    val name = DocumentFile.fromSingleUri(context, uri)?.name ?: "package.apk"
+                    val target = File(context.cacheDir, "picked-${System.currentTimeMillis()}-${name.substringAfterLast('/')}")
+                    context.contentResolver.openInputStream(uri)?.use { input -> target.outputStream().use { input.copyTo(it) } } ?: error("Unable to read selected file.")
+                    ArchiveInstaller.prepare(context, target)
+                }
+                ArchiveInstaller.install(context, prepared.files)
+                status = "Installer session started for ${prepared.label}"
+            } catch (e: Exception) { status = e.message ?: "Unable to prepare installer." }
+            finally { busy = false }
+        }
+    }
+    fun refreshFiles(uri: Uri?) {
+        if (uri == null) { entries = emptyList(); return }
+        val dir = DocumentFile.fromTreeUri(context, uri) ?: DocumentFile.fromSingleUri(context, uri)
+        entries = dir?.listFiles()?.sortedWith(compareByDescending<DocumentFile> { it.isDirectory }.thenBy { it.name?.lowercase() })?.toList().orEmpty()
+    }
+    LaunchedEffect(callback) {
+        val uri = callback ?: return@LaunchedEffect
+        clearCallback()
+        val code = uri.getQueryParameter("code")
+        val verifier = store.get("oauth_verifier")
+        try {
+            require(!code.isNullOrBlank() && !verifier.isNullOrBlank()) { "Discord sign-in could not be completed." }
+            val tokens = withContext(Dispatchers.IO) { auth.exchange(code, verifier) }
+            val profile = withContext(Dispatchers.IO) { auth.user(tokens.access) }
+            store.put("access", tokens.access); store.put("refresh", tokens.refresh); store.remove("oauth_verifier")
+            access = tokens.access; user = profile; status = "Signed in with Discord."
+        } catch (e: Exception) {
+            store.remove("access", "refresh", "oauth_verifier"); access = null; user = null
+            status = "Authentication failed: ${e.message ?: "Please try again."}"
+        }
+    }
+    LaunchedEffect(access) {
+        val token = access ?: return@LaunchedEffect
+        try {
+            user = withContext(Dispatchers.IO) { auth.user(token) }
+        } catch (_: Exception) {
+            val refresh = store.get("refresh")
+            if (refresh != null) runCatching {
+                val tokens = withContext(Dispatchers.IO) { auth.refresh(refresh) }
+                val profile = withContext(Dispatchers.IO) { auth.user(tokens.access) }
+                store.put("access", tokens.access); store.put("refresh", tokens.refresh)
+                access = tokens.access; user = profile
+            }.onFailure { store.remove("access", "refresh"); access = null; user = null }
+            else { store.remove("access"); access = null }
+        }
+    }
+    LaunchedEffect(Unit) {
+        var prev = monitor.counters()
+        var last = System.currentTimeMillis()
+        while (true) {
+            delay(1000)
+            val now = System.currentTimeMillis()
+            val current = monitor.counters()
+            network = monitor.snapshot(prev.first, prev.second, now - last)
+            prev = current; last = now
+        }
+    }
+    LaunchedEffect(folderUri, currentFolder) { refreshFiles(currentFolder ?: folderUri) }
+    MaterialTheme(colorScheme = darkColorScheme(primary = Violet, background = Background, surface = SurfaceDark)) {
+        Scaffold(
+            containerColor = Background,
+            topBar = {
+                CenterAlignedTopAppBar(
+                    title = { Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("ATOMOS", fontWeight = FontWeight.Black, letterSpacing = 3.sp, fontSize = 16.sp)
+                        Text(if (network.connected) "${network.transport} · ↓ ${formatRate(network.downloadBps)} · ↑ ${formatRate(network.uploadBps)}" else "No internet connection", style = MaterialTheme.typography.labelSmall, color = if (network.connected) Violet else MaterialTheme.colorScheme.error)
+                    } },
+                    actions = { Text(if (network.validated) "●" else "○", color = if (network.validated) Violet else MaterialTheme.colorScheme.error, modifier = Modifier.padding(end = 18.dp)) },
+                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Background, titleContentColor = MaterialTheme.colorScheme.onBackground)
+                )
+            },
+            bottomBar = {
+                NavigationBar(containerColor = SurfaceDark) {
+                    listOf("Home", "Network", "Files", "Installer", "Settings").forEach { item ->
+                        NavigationBarItem(selected = page == item, onClick = { page = item }, icon = { Text(when(item) { "Home" -> "⌂"; "Network" -> "⌁"; "Files" -> "▤"; "Installer" -> "⬇"; else -> "⚙" }) }, label = { Text(item) })
                     }
                 }
-            ) { padding ->
-                Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(18.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
-                    when(page){
-                        "Home"->{
-                            Text("YOUR DEVICES, IN ORBIT.",color=Violet,fontSize=11.sp,letterSpacing=2.sp,fontWeight=FontWeight.Bold)
-                            Text("Your phone, connected.",color=Color.White,fontSize=27.sp,fontWeight=FontWeight.Bold)
-                            Card(colors=CardDefaults.cardColors(containerColor=Panel),shape=RoundedCornerShape(24.dp)){Column(Modifier.padding(20.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
-                                Row(verticalAlignment=Alignment.CenterVertically){Text("DEVICE CONNECTION",color=Muted,fontSize=10.sp,letterSpacing=2.sp);Spacer(Modifier.weight(1f));Text(if(token!=null)"REGISTERED" else "NOT PAIRED",color=if(token!=null)Color(0xFF72E1B6) else Color(0xFFFFC477),fontWeight=FontWeight.Bold,fontSize=11.sp)}
-                                Text(if(token!=null)"Secure device linked" else "Connect this phone",color=Color.White,fontSize=21.sp,fontWeight=FontWeight.Bold);Text(message,color=Muted,fontSize=13.sp)
-                                if(deviceId.isNotBlank())Text("Device ID  $deviceId",color=Muted,fontSize=10.sp)
-                            }}
-                            if(stage=="github")Button(onClick={val v=api.newPkceVerifier();store.put("github_pkce_verifier",v);openOAuth(api.githubAuthorizationUrl(v))},modifier=Modifier.fillMaxWidth()){Text("Continue with GitHub")}
-                            else if(token==null)Button(enabled=!busy,onClick={runTask{val c=withContext(Dispatchers.IO){api.callAsUser("create_pairing",store,JSONObject().put("device_name","Android phone").put("app_version","0.3.0"))};val r=withContext(Dispatchers.IO){api.callAsUser("claim_pairing",store,JSONObject().put("code",c.getString("code")).put("device_name","Android phone"))};deviceId=r.getString("device_id");token=r.getString("device_token");store.put("device_id",deviceId);store.put("device_token",token!!);message="Phone paired to your GitHub account."}},modifier=Modifier.fillMaxWidth()){Text("Register this phone")}
-                            else{Button(onClick={startCloud();cloudActive=true;message="Cloud command listener started. Keep the persistent notification active."},modifier=Modifier.fillMaxWidth()){Text("Start cloud control")};OutlinedButton(onClick={stopCloud();cloudActive=false},modifier=Modifier.fillMaxWidth()){Text("Stop cloud control")}}
-                            Text("Cloud control runs only while you explicitly start the foreground connection. Android shows a persistent notification while it is active.",color=Muted,fontSize=11.sp)
+            }
+        ) { padding ->
+            Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 18.dp)) {
+                when (page) {
+                    "Home" -> HomePage(network, user, status, onNetwork = { page = "Network" }, onFiles = { page = "Files" }, onInstaller = { page = "Installer" }, onSpeed = { page = "Network" })
+                    "Network" -> NetworkPage(network, speedResult, speedBusy, speedProgress) {
+                        if (!speedBusy) scope.launch {
+                            speedBusy = true; speedProgress = 0f
+                            try { speedResult = withContext(Dispatchers.IO) { runSpeedTest { speedProgress = it } } }
+                            catch (e: Exception) { speedResult = "Test failed: ${e.message}" }
+                            finally { speedBusy = false; speedProgress = 1f }
                         }
-                        "Control"->{
-                            Text("REMOTE CONTROL",color=Violet,fontSize=11.sp,letterSpacing=2.sp,fontWeight=FontWeight.Bold);Text("Command console",color=Color.White,fontSize=25.sp,fontWeight=FontWeight.Bold)
-                            Text("Commands are delivered through your authenticated cloud session and executed only while the phone's control service is active.",color=Muted,fontSize=13.sp)
-                            Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){Button(enabled=token!=null&&!busy,onClick={send("inspect")},modifier=Modifier.weight(1f)){Text("Inspect screen")};OutlinedButton(enabled=token!=null&&!busy,onClick={send("back")},modifier=Modifier.weight(1f)){Text("Back")}}
-                            Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){OutlinedButton(enabled=token!=null&&!busy,onClick={send("home")},modifier=Modifier.weight(1f)){Text("Home")};OutlinedButton(enabled=token!=null&&!busy,onClick={send("notifications")},modifier=Modifier.weight(1f)){Text("Notifications")}}
-                            Text("Tap coordinates",color=Color.White,fontWeight=FontWeight.SemiBold)
-                            Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){OutlinedTextField(x,{x=it},label={Text("X")},modifier=Modifier.weight(1f));OutlinedTextField(y,{y=it},label={Text("Y")},modifier=Modifier.weight(1f))}
-                            Button(enabled=token!=null&&!busy,onClick={send("tap",JSONObject().put("x",x.toDoubleOrNull()).put("y",y.toDoubleOrNull()))},modifier=Modifier.fillMaxWidth()){Text("Tap screen")}
-                            OutlinedTextField(inputText,{inputText=it},label={Text("Text to enter into focused field")},modifier=Modifier.fillMaxWidth())
-                            Button(enabled=token!=null&&!busy&&inputText.length<=4000,onClick={send("type",JSONObject().put("text",inputText))},modifier=Modifier.fillMaxWidth()){Text("Type text")}
-                            Divider(color=Muted.copy(alpha=.25f))
-                            Text("SMS • compose securely",color=Color.White,fontWeight=FontWeight.SemiBold)
-                            Text("Atomos opens your SMS app with the recipient and message filled in. You review and press Send yourself. Inbox and OTP contents are never read.",color=Muted,fontSize=12.sp)
-                            OutlinedTextField(smsNumber,{smsNumber=it},label={Text("Phone number")},modifier=Modifier.fillMaxWidth(),singleLine=true)
-                            OutlinedTextField(smsBody,{smsBody=it},label={Text("Message")},modifier=Modifier.fillMaxWidth(),minLines=2)
-                            Button(enabled=smsNumber.trim().isNotEmpty()&&smsBody.isNotBlank(),onClick={confirmSms=true},modifier=Modifier.fillMaxWidth()){Text("Review SMS")}
+                    }
+                    "Files" -> FilesPage(folderUri, currentFolder, entries, folderName, { folderName = it }, { treePicker.launch(null) }, {
+                        val target = currentFolder ?: folderUri
+                        if (target != null && folderName.isNotBlank()) {
+                            val dir = DocumentFile.fromTreeUri(context, target) ?: DocumentFile.fromSingleUri(context, target)
+                            if (dir?.createDirectory(folderName.trim()) != null) { folderName = ""; refreshFiles(target) } else status = "Could not create folder."
                         }
-                        "Messages"->{
-                            Text("PRIVATE MESSAGES",color=Violet,fontSize=11.sp,letterSpacing=2.sp,fontWeight=FontWeight.Bold)
-                            Text("SMS reader",color=Color.White,fontSize=25.sp,fontWeight=FontWeight.Bold)
-                            Text("Read-only access to SMS stored on this phone, limited to the last seven days and up to 100 newest messages. Nothing is sent or deleted.",color=Muted,fontSize=13.sp)
-                            Button(enabled=!busy,onClick={if(SmsReader.hasPermission(context))runTask{localMessages=withContext(Dispatchers.IO){readSms()};message="Loaded ${localMessages.size} messages."}else smsPermissionLauncher.launch(android.Manifest.permission.READ_SMS)},modifier=Modifier.fillMaxWidth()){Text(if(SmsReader.hasPermission(context))"Refresh local messages" else "Grant SMS access")}
-                            localMessages.forEach { item ->
-                                Card(colors=CardDefaults.cardColors(containerColor=Panel),shape=RoundedCornerShape(16.dp)){
-                                    Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(5.dp)){
-                                        Row(verticalAlignment=Alignment.CenterVertically){Text(item.address.ifBlank{"Unknown sender"},color=Color.White,fontWeight=FontWeight.Bold,modifier=Modifier.weight(1f));Text(if(item.type==android.provider.Telephony.Sms.MESSAGE_TYPE_SENT)"Sent" else "Received",color=Violet,fontSize=10.sp)}
-                                        Text(DateFormat.getDateTimeInstance(DateFormat.MEDIUM,DateFormat.SHORT).format(Date(item.date)),color=Muted,fontSize=10.sp)
-                                        Text(item.body,color=Color.White,fontSize=13.sp)
+                    }, { file ->
+                        if (file.isDirectory) { currentFolder = file.uri; refreshFiles(file.uri) }
+                        else if (file.name?.substringAfterLast('.', "")?.lowercase() in setOf("apk","apkm","apks","apkx","xapk")) {
+                            scope.launch {
+                                try {
+                                    val prepared = withContext(Dispatchers.IO) {
+                                        val target = File(context.cacheDir, "file-${System.currentTimeMillis()}-${file.name}")
+                                        context.contentResolver.openInputStream(file.uri)?.use { input -> target.outputStream().use { input.copyTo(it) } } ?: error("Unable to read file.")
+                                        ArchiveInstaller.prepare(context, target)
                                     }
-                                }
+                                    ArchiveInstaller.install(context, prepared.files); status = "Installer session started."
+                                } catch (e: Exception) { status = e.message ?: "Install failed." }
                             }
-                            if(localMessages.isEmpty())Text("No messages loaded yet. Grant access to view the seven-day window.",color=Muted,fontSize=12.sp)
-                        }
-                        "Devices"->{
-                            Text("DEVICE FLEET",color=Violet,fontSize=11.sp,letterSpacing=2.sp,fontWeight=FontWeight.Bold);Text("Your devices",color=Color.White,fontSize=25.sp,fontWeight=FontWeight.Bold)
-                            Button(enabled=stage=="signed"&&!busy,onClick={runTask{val r=withContext(Dispatchers.IO){api.callAsUser("list_devices",store)};val a=r.optJSONArray("devices");devices=(0 until (a?.length()?:0)).mapNotNull{a?.optJSONObject(it)}}},modifier=Modifier.fillMaxWidth()){Text("Refresh device list")}
-                            devices.forEach{d->Card(colors=CardDefaults.cardColors(containerColor=Panel)){Column(Modifier.padding(16.dp)){Text(d.optString("device_name","Android device"),color=Color.White,fontWeight=FontWeight.Bold);Text(d.optString("status"),color=Muted);Text(d.optString("id"),color=Muted,fontSize=10.sp)}}}
-                            Text("Devices registered with this GitHub-linked Atomos account appear here. Sign in with the same account on each control client.",color=Muted,fontSize=12.sp)
-                        }
-                        "Settings"->{Text("SETTINGS",color=Violet,fontSize=11.sp,letterSpacing=2.sp);Text("Connection & permissions",color=Color.White,fontSize=24.sp,fontWeight=FontWeight.Bold);Button(onClick=openAccessibility,modifier=Modifier.fillMaxWidth()){Text("Accessibility settings")};OutlinedButton(onClick={store.remove("access","refresh");stage="github";message="Signed out. Device remains registered."},modifier=Modifier.fillMaxWidth()){Text("Sign out of GitHub")};Text("Notification access is optional. Screen capture will request Android MediaProjection consent when implemented.",color=Muted,fontSize=12.sp)}
-                        else->{Text("ABOUT ATOMOS",color=Violet,fontSize=11.sp,letterSpacing=2.sp);Text("A deliberate bridge between your devices and your AI workspace.",color=Color.White,fontSize=24.sp,fontWeight=FontWeight.Bold);Text("Version 0.3.0 • GitHub identity • encrypted device credentials • cloud command relay • Android AccessibilityService",color=Muted,fontSize=13.sp)}
-                    }
-                    if(confirmSms)AlertDialog(onDismissRequest={confirmSms=false},title={Text("Open SMS composer?")},text={Text("Atomos will open your messaging app. Nothing is sent until you press Send there.")},confirmButton={TextButton(onClick={confirmSms=false;composeSms(smsNumber.trim(),smsBody)}){Text("Continue")}},dismissButton={TextButton(onClick={confirmSms=false}){Text("Cancel")}})
-                    if(authFailed)AlertDialog(onDismissRequest={authFailed=false},title={Text("Authentication failed")},text={Text("Access is restricted to the registered GitHub account (ID 85796566). Sign in with the authorized account.")},confirmButton={TextButton(onClick={authFailed=false}){Text("Close")}})
-                    if(busy)LinearProgressIndicator(Modifier.fillMaxWidth())
-                    Text(message,color=Muted,fontSize=11.sp)
+                        } else status = file.name ?: "Selected file"
+                    }, { file -> renameTarget = file; renameValue = file.name.orEmpty() }, { file -> file.delete(); refreshFiles(currentFolder ?: folderUri) }, { currentFolder = folderUri; refreshFiles(folderUri) }, renameTarget, renameValue, { renameValue = it }, {
+                        renameTarget?.renameTo(renameValue.trim()); renameTarget = null; refreshFiles(currentFolder ?: folderUri)
+                    }, { renameTarget = null })
+                    "Installer" -> InstallerPage(status, busy, { filePicker.launch(arrayOf("*/*")) }, { status = "Supported: APK, APKM, APKS, APKX and XAPK. Split archives are installed as one package session." })
+                    "Settings" -> SettingsPage(user, status, { 
+                        scope.launch { try {
+                            val verifier = auth.verifier(); store.put("oauth_verifier", verifier)
+                            openBrowser(auth.discordUrl(verifier))
+                        } catch (e: Exception) { status = e.message ?: "Unable to start sign-in." } }
+                    }, {
+                        store.remove("access", "refresh", "oauth_verifier"); access = null; user = null; status = "Signed out."
+                    }, network.ipAddress)
                 }
+                Spacer(Modifier.height(8.dp))
+                Text(status, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 8.dp))
             }
         }
     }
+}
+
+@Composable private fun HomePage(n: NetworkSnapshot, user: AuthUser?, status: String, onNetwork: () -> Unit, onFiles: () -> Unit, onInstaller: () -> Unit, onSpeed: () -> Unit) {
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 18.dp)) {
+        item { Text("Your device, at a glance.", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
+        item { Card(colors = CardDefaults.cardColors(containerColor = SurfaceDark), shape = RoundedCornerShape(24.dp)) {
+            Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(if (n.validated) "INTERNET CONNECTED" else "CHECK CONNECTION", color = Violet, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                Text(n.transport, style = MaterialTheme.typography.headlineSmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                    Column { Text("DOWNLOAD", style = MaterialTheme.typography.labelSmall); Text(formatRate(n.downloadBps), fontWeight = FontWeight.Bold) }
+                    Column { Text("UPLOAD", style = MaterialTheme.typography.labelSmall); Text(formatRate(n.uploadBps), fontWeight = FontWeight.Bold) }
+                }
+                Text(if (user == null) "Discord sign-in available in Settings" else "Signed in as ${user.name}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        } }
+        item { UtilityCard("Network monitor", "Live connection, throughput, IP and speed test", "↗", onNetwork) }
+        item { UtilityCard("File manager", "Browse folders, organize and inspect files", "▤", onFiles) }
+        item { UtilityCard("Package installer", "Install APK and split APK archives", "⬇", onInstaller) }
+        item { Text("More utilities will appear here as independent tiles.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+    }
+}
+@Composable private fun UtilityCard(title: String, detail: String, glyph: String, click: () -> Unit) {
+    Card(onClick = click, colors = CardDefaults.cardColors(containerColor = SurfaceDark), shape = RoundedCornerShape(20.dp)) {
+        Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(glyph, color = Violet, fontSize = 25.sp, modifier = Modifier.padding(end = 16.dp))
+            Column(Modifier.weight(1f)) { Text(title, fontWeight = FontWeight.SemiBold); Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            Text("›", color = Violet, fontSize = 24.sp)
+        }
+    }
+}
+@Composable private fun NetworkPage(n: NetworkSnapshot, result: String, busy: Boolean, progress: Float, run: () -> Unit) {
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 18.dp)) {
+        item { Text("Network", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
+        item { Card(colors = CardDefaults.cardColors(containerColor = SurfaceDark)) { Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(if (n.validated) "Internet available" else "Internet unavailable", color = if (n.validated) Violet else MaterialTheme.colorScheme.error)
+            Text(n.transport, style = MaterialTheme.typography.titleLarge)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("↓  ${formatRate(n.downloadBps)}"); Text("↑  ${formatRate(n.uploadBps)}") }
+            Text("IP address: ${n.ipAddress.ifBlank { "Unavailable" }}", style = MaterialTheme.typography.bodySmall)
+            Text("Live rates are device-wide estimates from Android traffic counters.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } } }
+        item { Text("Internet speed test", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold) }
+        item { Card(colors = CardDefaults.cardColors(containerColor = SurfaceDark)) { Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(result)
+            if (busy) LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+            Button(onClick = run, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "Testing…" else "Start speed test") }
+            Text("Uses Cloudflare's public speed measurement endpoint. Results vary with server distance and network conditions.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } } }
+    }
+}
+@Composable private fun FilesPage(root: Uri?, current: Uri?, files: List<DocumentFile>, folderName: String, setFolderName: (String) -> Unit, choose: () -> Unit, create: () -> Unit, open: (DocumentFile) -> Unit, rename: (DocumentFile) -> Unit, delete: (DocumentFile) -> Unit, back: () -> Unit, renameTarget: DocumentFile?, renameValue: String, setRename: (String) -> Unit, confirmRename: () -> Unit, cancelRename: () -> Unit) {
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 18.dp)) {
+        item { Text("File manager", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
+        item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { OutlinedButton(onClick = choose, modifier = Modifier.weight(1f)) { Text(if (root == null) "Choose storage" else "Change folder") }; OutlinedButton(onClick = back, enabled = root != null && current != root) { Text("Root") } } }
+        item { Text("Atomos uses Android's folder picker. Only the folder you grant is accessible.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item { Row(verticalAlignment = Alignment.CenterVertically) { OutlinedTextField(folderName, setFolderName, modifier = Modifier.weight(1f), label = { Text("New folder") }, singleLine = true); Spacer(Modifier.width(8.dp)); Button(onClick = create, enabled = folderName.isNotBlank()) { Text("Create") } } }
+        if (files.isEmpty()) item { Text(if (root == null) "Choose a folder to begin." else "This folder is empty.", modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        items(files, key = { it.uri.toString() }) { file ->
+            Card(colors = CardDefaults.cardColors(containerColor = SurfaceDark), shape = RoundedCornerShape(16.dp)) {
+                Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { open(file) }) {
+                        Text(if (file.isDirectory) "▣" else "▤", color = Violet, fontSize = 22.sp, modifier = Modifier.padding(end = 12.dp))
+                        Column(Modifier.weight(1f)) { Text(file.name ?: "Unnamed", fontWeight = FontWeight.Medium); Text(if (file.isDirectory) "Folder" else "${file.type ?: "File"} · ${file.length()} bytes", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        Text("Open", color = Violet)
+                    }
+                    if (!file.isDirectory) Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                        TextButton(onClick = { rename(file) }) { Text("Rename") }
+                        TextButton(onClick = { delete(file) }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                    }
+                }
+            }
+        }
+        if (renameTarget != null) item {
+            OutlinedTextField(renameValue, setRename, label = { Text("Rename to") }, modifier = Modifier.fillMaxWidth())
+            Row { TextButton(onClick = cancelRename) { Text("Cancel") }; Button(onClick = confirmRename) { Text("Save name") } }
+        }
+    }
+}
+@Composable private fun InstallerPage(status: String, busy: Boolean, pick: () -> Unit, info: () -> Unit) {
+    Column(Modifier.fillMaxSize().padding(vertical = 22.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Text("Package installer", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Text("Install single APKs or split-package archives in one Android PackageInstaller session.")
+        Card(colors = CardDefaults.cardColors(containerColor = SurfaceDark), shape = RoundedCornerShape(20.dp)) {
+            Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Supported formats", color = Violet, fontWeight = FontWeight.Bold)
+                Text("APK · APKM · APKS · APKX · XAPK")
+                Text("Split archives are unpacked locally. Atomos does not upload your packages.")
+                Button(onClick = pick, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "Preparing…" else "Choose package") }
+                OutlinedButton(onClick = info, modifier = Modifier.fillMaxWidth()) { Text("Installation details") }
+            }
+        }
+        Text("Android may ask you to allow Atomos to install unknown apps. You remain in control of the final system installation prompt.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+@Composable private fun SettingsPage(user: AuthUser?, status: String, signIn: () -> Unit, signOut: () -> Unit, ip: String) {
+    Column(Modifier.fillMaxSize().padding(vertical = 22.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Text("Settings", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Card(colors = CardDefaults.cardColors(containerColor = SurfaceDark)) { Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Account", color = Violet, fontWeight = FontWeight.Bold)
+            Text(user?.name ?: "Not signed in", style = MaterialTheme.typography.titleLarge)
+            Text(user?.email ?: "Discord authentication")
+            if (user == null) Button(onClick = signIn, modifier = Modifier.fillMaxWidth()) { Text("Continue with Discord") }
+            else OutlinedButton(onClick = signOut, modifier = Modifier.fillMaxWidth()) { Text("Sign out") }
+        } }
+        Card(colors = CardDefaults.cardColors(containerColor = SurfaceDark)) { Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Device", color = Violet, fontWeight = FontWeight.Bold)
+            Text("Local IP: ${ip.ifBlank { "Unavailable" }}")
+            Text("Android 10 and newer · Modular utility modules")
+            Text("Atomos 1.0.0")
+        } }
+    }
+}
+private fun runSpeedTest(progress: (Float) -> Unit): String {
+    fun request(url: String, method: String = "GET", bytes: ByteArray? = null): Pair<Long, Long> {
+        val start = System.nanoTime()
+        val c = (URL(url).openConnection() as HttpURLConnection).apply { requestMethod = method; connectTimeout = 12000; readTimeout = 30000; useCaches = false; setRequestProperty("Cache-Control", "no-cache") }
+        try {
+            if (bytes != null) { c.doOutput = true; c.setRequestProperty("Content-Type", "application/octet-stream"); c.outputStream.use { it.write(bytes) } }
+            val stream = if (c.responseCode in 200..299) c.inputStream else c.errorStream
+            var count = 0L
+            stream?.use { input -> val buffer = ByteArray(32768); while (true) { val n = input.read(buffer); if (n < 0) break; count += n } }
+            return Pair(count, System.nanoTime() - start)
+        } finally { c.disconnect() }
+    }
+    val base = "https://speed.cloudflare.com"
+    val pings = (1..3).map { request("$base/__down?bytes=0").second / 1_000_000.0 }
+    progress(0.15f)
+    val download = request("$base/__down?bytes=25000000")
+    progress(0.65f)
+    val upload = request("$base/__up", "POST", ByteArray(5_000_000))
+    progress(1f)
+    val downMbps = download.first * 8.0 / (download.second / 1e9) / 1_000_000.0
+    val upMbps = 5_000_000.0 * 8.0 / (upload.second / 1e9) / 1_000_000.0
+    val ping = pings.average()
+    val jitter = pings.maxOrNull()!! - pings.minOrNull()!!
+    return "Download: ${"%.1f".format(downMbps)} Mbps\nUpload: ${"%.1f".format(upMbps)} Mbps\nLatency: ${"%.0f".format(ping)} ms · Jitter: ${"%.1f".format(jitter)} ms"
 }
