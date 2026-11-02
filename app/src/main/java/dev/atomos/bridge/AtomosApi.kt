@@ -1,9 +1,13 @@
 package dev.atomos.bridge
 
+import android.util.Base64
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
+import java.security.MessageDigest
+import java.security.SecureRandom
 
 data class AuthTokens(val accessToken: String, val refreshToken: String)
 
@@ -12,6 +16,7 @@ class ApiException(val status: Int, message: String) : IllegalStateException(mes
 class AtomosApi {
     private val base = BuildConfig.SUPABASE_URL.trimEnd('/')
     private val key = BuildConfig.SUPABASE_PUBLISHABLE_KEY
+    private val redirectUri = "dev.atomos.bridge://auth-callback"
     private val maxResponseBytes = 64 * 1024
 
     private fun request(path: String, body: JSONObject? = null, bearer: String? = null,
@@ -27,7 +32,7 @@ class AtomosApi {
             setRequestProperty("apikey", key)
             setRequestProperty("Accept", "application/json")
             setRequestProperty("Cache-Control", "no-store")
-            setRequestProperty("User-Agent", "AtomosDeviceBridge/0.2.1 Android")
+            setRequestProperty("User-Agent", "AtomosDeviceBridge/0.2.2 Android")
             bearer?.let { setRequestProperty("Authorization", "Bearer $it") }
             device?.let { setRequestProperty("x-device-token", it) }
             if (body != null) {
@@ -36,9 +41,7 @@ class AtomosApi {
             }
         }
         try {
-            if (body != null) connection.outputStream.use {
-                it.write(body.toString().toByteArray(Charsets.UTF_8))
-            }
+            if (body != null) connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
             val status = connection.responseCode
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
             val raw = stream?.use { input ->
@@ -59,9 +62,7 @@ class AtomosApi {
             }
             if (status !in 200..299) {
                 val message = parsed.optString("msg").ifBlank {
-                    parsed.optString("message").ifBlank {
-                        parsed.optString("error").ifBlank { "Request failed (HTTP $status)." }
-                    }
+                    parsed.optString("message").ifBlank { parsed.optString("error").ifBlank { "Request failed (HTTP $status)." } }
                 }
                 throw ApiException(status, message)
             }
@@ -77,24 +78,29 @@ class AtomosApi {
                     else -> e.message?.take(180) ?: "Network request failed."
                 }, e
             )
-        } finally {
-            connection.disconnect()
-        }
+        } finally { connection.disconnect() }
     }
 
-    fun sendOtp(email: String): JSONObject {
-        val normalized = email.trim().lowercase()
-        require(normalized.length in 5..254 && normalized.contains("@") && !normalized.contains(" ")) {
-            "Enter a valid email address."
-        }
-        return request("/auth/v1/otp", JSONObject().put("email", normalized).put("create_user", true))
+    fun newPkceVerifier(): String {
+        val bytes = ByteArray(32).also { SecureRandom().nextBytes(it) }
+        return Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
     }
 
-    fun verifyOtp(email: String, token: String): AuthTokens {
-        val code = token.trim()
-        require(code.length in 6..8 && code.all(Char::isDigit)) { "Enter the verification code from your email." }
-        val r = request("/auth/v1/verify", JSONObject()
-            .put("email", email.trim().lowercase()).put("token", code).put("type", "email"))
+    fun githubAuthorizationUrl(verifier: String): String {
+        require(verifier.length in 43..128) { "Invalid OAuth verifier." }
+        val challenge = Base64.encodeToString(
+            MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(Charsets.US_ASCII)),
+            Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
+        )
+        val redirect = URLEncoder.encode(redirectUri, Charsets.UTF_8.name())
+        val encodedChallenge = URLEncoder.encode(challenge, Charsets.UTF_8.name())
+        return "$base/auth/v1/authorize?provider=github&redirect_to=$redirect&code_challenge=$encodedChallenge&code_challenge_method=s256"
+    }
+
+    fun exchangeGitHubCode(code: String, verifier: String): AuthTokens {
+        require(code.length in 1..2048 && verifier.length in 43..128) { "Invalid GitHub callback." }
+        val r = request("/auth/v1/token?grant_type=pkce",
+            JSONObject().put("auth_code", code).put("code_verifier", verifier))
         return AuthTokens(r.getString("access_token"), r.getString("refresh_token"))
     }
 
@@ -112,9 +118,8 @@ class AtomosApi {
     /** Refreshes an expired user session once. Never automatically retries device claims. */
     fun callAsUser(action: String, store: SecureStore, extra: JSONObject = JSONObject()): JSONObject {
         var access = store.get("access") ?: throw IllegalStateException("Please sign in again.")
-        try {
-            return call(action, access, extra = extra)
-        } catch (e: ApiException) {
+        try { return call(action, access, extra = extra) }
+        catch (e: ApiException) {
             if (e.status != 401) throw e
             val refreshToken = store.get("refresh") ?: run {
                 store.remove("access", "refresh")
