@@ -10,8 +10,8 @@ Atomos is a modular Android utility suite focused on network visibility, local f
 - Encrypted local session storage backed by Android Keystore.
 - Live network connectivity, transport, validated-internet state, local IP and device-wide RX/TX throughput.
 - Internet speed test with download, upload, latency and jitter measurements.
-- Storage Access Framework file browser. Atomos only sees folders explicitly granted by the user.
-- APK, APKM, APKS, APKX and XAPK archive inspection and local installation through Android PackageInstaller, including multi-APK split sessions.
+- Storage Access Framework file browser with folder creation, navigation, file copy/move, rename and delete. Atomos only sees folders explicitly granted by the user.
+- APK, APKM, APKS, APKX and XAPK archive inspection and local installation through Android PackageInstaller, including bounded multi-APK split sessions. XAPK OBB expansion data is not currently restored automatically.
 - ABI-specific APKs plus a universal APK.
 - Utility tiles are independent UI modules, ready for future additions.
 
