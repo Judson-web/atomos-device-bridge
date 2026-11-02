@@ -1,4 +1,4 @@
 <resources>
-    <string name="app_name">Atomos Device Bridge</string>
+    <string name="app_name">Atomos</string>
     <string name="accessibility_description">Allows Atomos to inspect visible interface elements and perform actions you explicitly request.</string>
 </resources>

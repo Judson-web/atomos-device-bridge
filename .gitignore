@@ -1,6 +1,0 @@
-/app/release-key.jks
-*.jks
-*.keystore
-local.properties
-.gradle/
-/build/
