@@ -459,50 +459,159 @@ private fun fileGlyph(file: DocumentFile): String {
     }
 }
 
+private fun isSafeFileName(value: String): Boolean =
+    value.isNotBlank() &&
+        value != "." &&
+        value != ".." &&
+        value.length <= 255 &&
+        value.none { it == '/' || it == '\\' || it == ':' || Character.isISOControl(it) }
+
+private fun safeArchiveSegment(value: String): String {
+    val cleaned = value
+        .replace('/', '_')
+        .replace('\\', '_')
+        .filterNot { Character.isISOControl(it) }
+        .trim()
+        .take(255)
+    return cleaned.takeUnless { it.isBlank() || it == "." || it == ".." } ?: "unnamed"
+}
+
+private fun uniqueChildName(parent: DocumentFile, desired: String): String {
+    if (parent.findFile(desired) == null) return desired
+    val dot = desired.lastIndexOf('.')
+    val stem = if (dot > 0) desired.substring(0, dot) else desired
+    val extension = if (dot > 0) desired.substring(dot) else ""
+    var suffix = 1
+    var candidate: String
+    do {
+        candidate = "$§{stem} ($§{suffix})$§{extension}"
+        suffix++
+    } while (parent.findFile(candidate) != null && suffix < 100_000)
+    require(parent.findFile(candidate) == null) { "Could not generate a unique output name." }
+    return candidate
+}
+
 private fun compressToZip(context: android.content.Context, source: DocumentFile, destination: DocumentFile?): DocumentFile {
     val parent = destination ?: error("Choose a storage folder first.")
-    val stem = (source.name ?: "archive").substringBeforeLast('.', source.name ?: "archive")
-    var name = "$stem.zip"; var i = 1
-    while (parent.findFile(name) != null) { name = "$stem ($i).zip"; i++ }
-    val target = parent.createFile("application/zip", name) ?: error("Cannot create ZIP.")
+    val originalName = source.name ?: "archive"
+    val stem = originalName.substringBeforeLast('.', originalName)
+    val zipName = uniqueChildName(parent, "$§{stem}.zip")
+    val target = parent.createFile("application/zip", zipName) ?: error("Cannot create ZIP.")
+    val visited = mutableSetOf<String>()
+    val buffer = ByteArray(64 * 1024)
+    var itemCount = 0
+    var totalBytes = 0L
+
     try {
-        java.util.zip.ZipOutputStream(java.io.BufferedOutputStream(context.contentResolver.openOutputStream(target.uri, "w") ?: error("Cannot write ZIP."))).use { zip ->
-            val buffer = ByteArray(65536)
-            fun add(item: DocumentFile, entryPath: String) {
+        java.util.zip.ZipOutputStream(
+            java.io.BufferedOutputStream(context.contentResolver.openOutputStream(target.uri, "w") ?: error("Cannot write ZIP."))
+        ).use { zip ->
+            fun add(item: DocumentFile, proposedPath: String, depth: Int) {
+                if (item.uri == target.uri) return
+                require(depth <= 64) { "Folder nesting exceeds the ZIP limit." }
+                if (!visited.add(item.uri.toString())) return
+                itemCount++
+                require(itemCount <= 10_000) { "Folder contains too many entries to compress." }
+
+                val entryPath = if (proposedPath.isBlank()) safeArchiveSegment(item.name ?: "unnamed") else proposedPath
+                require(entryPath.length <= 4096) { "ZIP path is too long." }
+
                 if (item.isDirectory) {
-                    val dirPath = if (entryPath.endsWith("/")) entryPath else "$entryPath/"
-                    zip.putNextEntry(java.util.zip.ZipEntry(dirPath)); zip.closeEntry()
-                    item.listFiles().forEach { add(it, "$dirPath${it.name ?: "unnamed"}") }
+                    val directoryPath = if (entryPath.endsWith("/")) entryPath else "$§{entryPath}/"
+                    zip.putNextEntry(java.util.zip.ZipEntry(directoryPath))
+                    zip.closeEntry()
+                    item.listFiles().forEach { child ->
+                        add(child, "$§{directoryPath}$§{safeArchiveSegment(child.name ?: "unnamed")}", depth + 1)
+                    }
                 } else {
                     zip.putNextEntry(java.util.zip.ZipEntry(entryPath))
-                    context.contentResolver.openInputStream(item.uri)?.use { input -> while (true) { val n = input.read(buffer); if (n < 0) break; zip.write(buffer, 0, n) } } ?: error("Cannot read ${item.name}.")
+                    context.contentResolver.openInputStream(item.uri)?.use { input ->
+                        while (true) {
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            totalBytes += count
+                            require(totalBytes <= 1_000_000_000L) { "Selected files exceed the 1 GB ZIP creation limit." }
+                            zip.write(buffer, 0, count)
+                        }
+                    } ?: error("Cannot read §{item.name}.")
                     zip.closeEntry()
                 }
             }
-            add(source, source.name ?: "item")
+            add(source, safeArchiveSegment(source.name ?: "item"), 0)
         }
         return target
-    } catch (e: Exception) { target.delete(); throw e }
+    } catch (e: Exception) {
+        target.delete()
+        throw e
+    }
 }
+
 private fun extractZip(context: android.content.Context, archive: DocumentFile, destination: DocumentFile?): Int {
     val root = destination ?: error("Choose a storage folder first.")
-    var count = 0; val buffer = ByteArray(65536)
-    java.util.zip.ZipInputStream(java.io.BufferedInputStream(context.contentResolver.openInputStream(archive.uri) ?: error("Cannot read ZIP."))).use { zip ->
-        while (true) {
-            val entry = zip.nextEntry ?: break
-            val normalized = entry.name.replace('\\', '/')
-            val parts = normalized.split('/').filter { it.isNotBlank() }
-            require(parts.none { it == "." || it == ".." || it.contains(':') }) { "Unsafe ZIP entry path rejected." }
-            var dir = root
-            parts.dropLast(if (entry.isDirectory) 0 else 1).forEach { part -> dir = dir.findFile(part) ?: dir.createDirectory(part) ?: error("Cannot create folder.") }
-            if (!entry.isDirectory && parts.isNotEmpty()) {
-                val output = dir.createFile("application/octet-stream", parts.last()) ?: error("Cannot create ${parts.last()}.")
-                try { context.contentResolver.openOutputStream(output.uri, "w")?.use { out -> while (true) { val n = zip.read(buffer); if (n < 0) break; out.write(buffer, 0, n) } } ?: error("Cannot write extracted file.") }
-                catch (e: Exception) { output.delete(); throw e }
-                count++
+    val created = mutableListOf<DocumentFile>()
+    var extractedFiles = 0
+    var entryCount = 0
+    var totalBytes = 0L
+    val buffer = ByteArray(64 * 1024)
+
+    try {
+        java.util.zip.ZipInputStream(
+            java.io.BufferedInputStream(context.contentResolver.openInputStream(archive.uri) ?: error("Cannot read ZIP."))
+        ).use { zip ->
+            while (true) {
+                val entry = zip.nextEntry ?: break
+                entryCount++
+                require(entryCount <= 10_000) { "Archive contains too many entries." }
+
+                val normalized = entry.name.replace('\\', '/')
+                require(normalized.length <= 4096 && !normalized.startsWith("/")) { "Unsafe ZIP entry path rejected." }
+                val parts = normalized.split('/').filter { it.isNotEmpty() }
+                require(parts.isNotEmpty() && parts.all { isSafeFileName(it) }) { "Unsafe ZIP entry path rejected." }
+
+                var directory = root
+                val directoryParts = parts.dropLast(if (entry.isDirectory) 0 else 1)
+                require(directoryParts.size <= 64) { "Archive folder nesting exceeds the supported limit." }
+                directoryParts.forEach { part ->
+                    val existing = directory.findFile(part)
+                    if (existing != null) {
+                        require(existing.isDirectory) { "A file blocks the archive folder path: $part" }
+                        directory = existing
+                    } else {
+                        directory = directory.createDirectory(part) ?: error("Cannot create folder: $part")
+                        created += directory
+                    }
+                }
+
+                if (!entry.isDirectory) {
+                    val desiredName = parts.last()
+                    val outputName = uniqueChildName(directory, desiredName)
+                    val mimeType = java.net.URLConnection.guessContentTypeFromName(outputName) ?: "application/octet-stream"
+                    val output = directory.createFile(mimeType, outputName) ?: error("Cannot create $§{outputName}.")
+                    created += output
+                    try {
+                        context.contentResolver.openOutputStream(output.uri, "w")?.use { stream ->
+                            while (true) {
+                                val count = zip.read(buffer)
+                                if (count < 0) break
+                                totalBytes += count
+                                require(totalBytes <= 1_000_000_000L) { "Archive expands beyond the 1 GB extraction limit." }
+                                stream.write(buffer, 0, count)
+                            }
+                            stream.flush()
+                        } ?: error("Cannot write extracted file.")
+                    } catch (e: Exception) {
+                        output.delete()
+                        created.remove(output)
+                        throw e
+                    }
+                    extractedFiles++
+                }
+                zip.closeEntry()
             }
-            zip.closeEntry()
         }
+        return extractedFiles
+    } catch (e: Exception) {
+        created.asReversed().forEach { runCatching { it.delete() } }
+        throw e
     }
-    return count
 }
