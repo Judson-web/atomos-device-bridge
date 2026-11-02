@@ -473,6 +473,7 @@ private fun safeArchiveSegment(value: String): String {
     val cleaned = value
         .replace('/', '_')
         .replace('\\', '_')
+        .replace(':', '_')
         .filterNot { Character.isISOControl(it) }
         .trim()
         .take(255)
