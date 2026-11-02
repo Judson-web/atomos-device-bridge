@@ -13,7 +13,7 @@ class InstallResultReceiver : BroadcastReceiver() {
         val message = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE).orEmpty()
         val text = when (status) {
             PackageInstaller.STATUS_PENDING_USER_ACTION -> {
-                val confirm = if (Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java) else @Suppress("DEPRECATION") intent.getParcelableExtra(Intent.EXTRA_INTENT)
+                val confirm: Intent? = if (Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java) else legacyIntent(intent)
                 confirm?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 if (confirm != null) context.startActivity(confirm)
                 "Confirm installation in Android"
@@ -24,3 +24,6 @@ class InstallResultReceiver : BroadcastReceiver() {
         Toast.makeText(context, text, Toast.LENGTH_LONG).show()
     }
 }
+
+@Suppress("DEPRECATION")
+private fun legacyIntent(intent: Intent): Intent? = intent.getParcelableExtra(Intent.EXTRA_INTENT)
