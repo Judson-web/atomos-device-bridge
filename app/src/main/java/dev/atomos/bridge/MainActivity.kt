@@ -120,7 +120,7 @@ private fun BridgeDashboard(store: SecureStore, api: AtomosApi, openAccessibilit
                             bearer = refreshed.accessToken
                             api.call("create_pairing", bearer, extra = extra)
                         }
-                        val claimed = api.call("claim_pairing", extra = JSONObject()
+                        val claimed = api.call("claim_pairing", bearer, extra = JSONObject()
                             .put("code", challenge.getString("code"))
                             .put("device_name", "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}"))
                         deviceId = claimed.getString("device_id")
