@@ -131,7 +131,7 @@ private fun BridgeDashboard(
         if (busy) return
         busy = true
         scope.launch {
-            try { withContext(Dispatchers.IO) { block() } }
+            try { block() }
             catch (e: Exception) {
                 message = e.message ?: "Request failed."
                 if (message.contains("sign in again", ignoreCase = true)) stage = "github"
@@ -184,10 +184,14 @@ private fun BridgeDashboard(
                     Text("SECURE PAIRING", color = Muted, fontSize = 10.sp, letterSpacing = 2.sp)
                     Button(onClick = { task {
                         val extra = JSONObject().put("device_name", "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}").put("app_version", "0.2.2")
-                        val challenge = api.callAsUser("create_pairing", store, extra)
-                        val claimed = api.callAsUser("claim_pairing", store, JSONObject()
-                            .put("code", challenge.getString("code"))
-                            .put("device_name", "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}"))
+                        val challenge = withContext(Dispatchers.IO) {
+                            api.callAsUser("create_pairing", store, extra)
+                        }
+                        val claimed = withContext(Dispatchers.IO) {
+                            api.callAsUser("claim_pairing", store, JSONObject()
+                                .put("code", challenge.getString("code"))
+                                .put("device_name", "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}"))
+                        }
                         deviceId = claimed.getString("device_id")
                         deviceToken = claimed.getString("device_token")
                         store.put("device_id", deviceId); store.put("device_token", deviceToken!!)
@@ -197,12 +201,16 @@ private fun BridgeDashboard(
                         Text(if (busy) "Pairing…" else "Register this phone")
                     }
                     Button(onClick = { task {
-                        val result = api.call("device_status", device = deviceToken ?: error("Register this phone first."))
+                        val result = withContext(Dispatchers.IO) {
+                            api.call("device_status", device = deviceToken ?: error("Register this phone first."))
+                        }
                         status = if (result.optBoolean("authenticated")) "Secure connection verified" else "Connection unavailable"
                         message = "The cloud validated this device credential."
                     } }, enabled = !busy && deviceToken != null, modifier = Modifier.fillMaxWidth()) { Text("Test secure connection") }
                     OutlinedButton(onClick = { task {
-                        api.callAsUser("revoke_device", store, JSONObject().put("device_id", deviceId))
+                        withContext(Dispatchers.IO) {
+                            api.callAsUser("revoke_device", store, JSONObject().put("device_id", deviceId))
+                        }
                         store.remove("device_token", "device_id")
                         deviceToken = null; deviceId = ""; status = "Access revoked"
                         message = "The cloud credential has been revoked."
