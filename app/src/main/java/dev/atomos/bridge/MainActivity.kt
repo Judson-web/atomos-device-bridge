@@ -16,6 +16,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -52,13 +54,56 @@ class MainActivity:ComponentActivity(){
     LaunchedEffect(token){if(token!=null){try{val r=withContext(Dispatchers.IO){api.call("device_status",device=token)};message=if(r.optBoolean("authenticated"))"Cloud device verified" else "Device unavailable"}catch(e:Exception){message=e.message?: "Device offline"}}}
     DisposableEffect(owner){val o=LifecycleEventObserver{_,e->if(e==Lifecycle.Event.ON_RESUME)cloudActive=CloudCommandService::class.java.let { false }};owner.lifecycle.addObserver(o);onDispose{owner.lifecycle.removeObserver(o)}}
     val nav=listOf("Home","Control","Devices","Settings","About")
+    val drawerState=rememberDrawerState(DrawerValue.Closed)
+    LaunchedEffect(drawer){ if(drawer) drawerState.open() else drawerState.close() }
     MaterialTheme(colorScheme=darkColorScheme(primary=Violet,background=Ink,surface=Panel,onSurface=Color.White)){
-        ModalNavigationDrawer(drawerState=rememberDrawerState(if(drawer)DrawerValue.Open else DrawerValue.Closed),drawerContent={ModalDrawerSheet(drawerContainerColor=Panel){
+        ModalNavigationDrawer(drawerState=drawerState,drawerContent={ModalDrawerSheet(drawerContainerColor=Panel){
             Column(Modifier.fillMaxWidth().padding(22.dp)){Text("ATOMOS",color=Violet,fontWeight=FontWeight.Black,letterSpacing=4.sp,fontSize=13.sp);Text("Cloud device bridge",color=Muted,fontSize=12.sp)}
             nav.forEach{item->NavigationDrawerItem(label={Text(item)},selected=page==item,onClick={page=item;drawer=false},icon={Icon(when(item){"Home"->Icons.Default.Home;"Control"->Icons.Default.Gamepad;"Devices"->Icons.Default.Devices;"Settings"->Icons.Default.Settings;else->Icons.Default.Info},null)},modifier=Modifier.padding(horizontal=12.dp))}
         }}) {
-            Scaffold(containerColor=Ink,topBar={CenterAlignedTopAppBar(title={Text("Atomos",fontWeight=FontWeight.Bold)},navigationIcon={IconButton(onClick={drawer=true}){Icon(Icons.Default.Menu,"Menu")}},actions={Icon(Icons.Default.Brightness2,null,tint=Violet);Spacer(Modifier.width(12.dp))},colors=TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor=Ink,titleContentColor=Color.White)})},
-                bottomBar={NavigationBar(containerColor=Panel){nav.take(4).forEach{item->NavigationBarItem(selected=page==item,onClick={page=item},icon={Icon(when(item){"Home"->Icons.Default.Home;"Control"->Icons.Default.Gamepad;"Devices"->Icons.Default.Devices;else->Icons.Default.Settings},null)},label={Text(item)})}}}){padding->
+            Scaffold(
+                containerColor = Ink,
+                topBar = {
+                    CenterAlignedTopAppBar(
+                        title = { Text("Atomos", fontWeight = FontWeight.Bold) },
+                        navigationIcon = {
+                            IconButton(onClick = { drawer = true }) {
+                                Icon(Icons.Default.Menu, contentDescription = "Menu")
+                            }
+                        },
+                        actions = {
+                            Icon(Icons.Default.Brightness2, contentDescription = null, tint = Violet)
+                            Spacer(Modifier.width(12.dp))
+                        },
+                        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                            containerColor = Ink,
+                            titleContentColor = Color.White
+                        )
+                    )
+                },
+                bottomBar = {
+                    NavigationBar(containerColor = Panel) {
+                        nav.take(4).forEach { item ->
+                            NavigationBarItem(
+                                selected = page == item,
+                                onClick = { page = item },
+                                icon = {
+                                    Icon(
+                                        when (item) {
+                                            "Home" -> Icons.Default.Home
+                                            "Control" -> Icons.Default.Gamepad
+                                            "Devices" -> Icons.Default.Devices
+                                            else -> Icons.Default.Settings
+                                        },
+                                        contentDescription = item
+                                    )
+                                },
+                                label = { Text(item) }
+                            )
+                        }
+                    }
+                }
+            ) { padding ->
                 Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(18.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
                     when(page){
                         "Home"->{
@@ -71,7 +116,7 @@ class MainActivity:ComponentActivity(){
                             }}
                             if(stage=="github")Button(onClick={val v=api.newPkceVerifier();store.put("github_pkce_verifier",v);openOAuth(api.githubAuthorizationUrl(v))},modifier=Modifier.fillMaxWidth()){Text("Continue with GitHub")}
                             else if(token==null)Button(enabled=!busy,onClick={runTask{val c=withContext(Dispatchers.IO){api.callAsUser("create_pairing",store,JSONObject().put("device_name","Android phone").put("app_version","0.3.0"))};val r=withContext(Dispatchers.IO){api.callAsUser("claim_pairing",store,JSONObject().put("code",c.getString("code")).put("device_name","Android phone"))};deviceId=r.getString("device_id");token=r.getString("device_token");store.put("device_id",deviceId);store.put("device_token",token!!);message="Phone paired to your GitHub account."}},modifier=Modifier.fillMaxWidth()){Text("Register this phone")}
-                            else{Button(onClick={startCloud();cloudActive=true;message="Cloud command listener started. Keep the persistent notification active."},modifier=Modifier.fillMaxWidth()){Text("Start cloud control")};OutlinedButton(onClick={stopCloud;cloudActive=false},modifier=Modifier.fillMaxWidth()){Text("Stop cloud control")}}
+                            else{Button(onClick={startCloud();cloudActive=true;message="Cloud command listener started. Keep the persistent notification active."},modifier=Modifier.fillMaxWidth()){Text("Start cloud control")};OutlinedButton(onClick={stopCloud();cloudActive=false},modifier=Modifier.fillMaxWidth()){Text("Stop cloud control")}}
                             Text("Cloud control runs only while you explicitly start the foreground connection. Android shows a persistent notification while it is active.",color=Muted,fontSize=11.sp)
                         }
                         "Control"->{
