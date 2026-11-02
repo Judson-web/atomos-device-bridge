@@ -361,7 +361,9 @@ private fun runSpeedTest(progress: (Float) -> Unit): String {
         val c = (URL(url).openConnection() as HttpURLConnection).apply { requestMethod = method; connectTimeout = 12000; readTimeout = 30000; useCaches = false; setRequestProperty("Cache-Control", "no-cache") }
         try {
             if (bytes != null) { c.doOutput = true; c.setRequestProperty("Content-Type", "application/octet-stream"); c.outputStream.use { it.write(bytes) } }
-            val stream = if (c.responseCode in 200..299) c.inputStream else c.errorStream
+            val code = c.responseCode
+            if (code !in 200..299) error("Speed-test server returned HTTP $code.")
+            val stream = c.inputStream
             var count = 0L
             stream?.use { input -> val buffer = ByteArray(32768); while (true) { val n = input.read(buffer); if (n < 0) break; count += n } }
             return Pair(count, System.nanoTime() - start)
