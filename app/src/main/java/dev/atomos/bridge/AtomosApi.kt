@@ -44,6 +44,23 @@ class AtomosApi {
         val r=request("/auth/v1/token?grant_type=pkce",JSONObject().put("auth_code",code).put("code_verifier",verifier))
         return AuthTokens(r.getString("access_token"),r.getString("refresh_token"))
     }
+    fun githubIdentityAllowed(accessToken:String):Boolean {
+        val connection=(URL("$base/auth/v1/user").openConnection() as HttpURLConnection).apply {
+            requestMethod="GET";connectTimeout=12000;readTimeout=18000;useCaches=false
+            setRequestProperty("apikey",key);setRequestProperty("Authorization","Bearer $accessToken")
+            setRequestProperty("Accept","application/json");setRequestProperty("Cache-Control","no-store")
+        }
+        try {
+            val status=connection.responseCode
+            if(status !in 200..299)return false
+            val raw=connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText().take(maxResponseBytes) }
+            val identities=JSONObject(raw).optJSONArray("identities") ?: return false
+            return (0 until identities.length()).any { i ->
+                val identity=identities.optJSONObject(i) ?: return@any false
+                identity.optString("provider")=="github" && identity.optString("provider_id")=="85796566"
+            }
+        } finally { connection.disconnect() }
+    }
     fun refresh(token:String):AuthTokens { val r=request("/auth/v1/token?grant_type=refresh_token",JSONObject().put("refresh_token",token));return AuthTokens(r.getString("access_token"),r.getString("refresh_token")) }
     fun call(action:String,bearer:String?=null,device:String?=null,extra:JSONObject=JSONObject()):JSONObject =
         request("/functions/v1/atomos-device-bridge",JSONObject(extra.toString()).put("action",action),bearer,device)
