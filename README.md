@@ -1,52 +1,69 @@
 # Atomos
 
-Atomos is a modular Android utility suite focused on network visibility, local file management and package installation. The previous cloud-device-control prototype has been retired; its remote accessibility, SMS and device-command code is not part of this application.
+Atomos is a **local-first Android utility app for a personally managed device**. It provides a file manager, built-in file viewers, ZIP tools, network diagnostics and a user-confirmed APK installer.
 
-## Current foundation
+## Local-only design
 
-- Native Kotlin + Jetpack Compose application.
+- No account, OAuth flow, sign-in gate, device pairing or cloud command channel is used by the Android app.
+- The app does not request SMS, contacts, call-log, accessibility, notification-listener or background remote-control permissions.
+- File access is restricted to directories explicitly granted through Android's Storage Access Framework. Atomos does not silently scan shared storage or protected application directories.
+- The selected storage URI is saved in encrypted app preferences backed by the Android Keystore. Android's persisted URI permission remains the authority for access.
+- File contents and archive contents are processed on-device. The only built-in network transfer is the optional speed test described below.
+
+## Features
+
+### File manager
+- Browse folders granted by the user, with breadcrumbs and back navigation.
+- Search the current folder, filter by file category, show or hide dotfiles, and sort by name, size or modification time.
+- Switch between list and grid layouts.
+- Create folders, rename, inspect details, copy and move files, and delete with a confirmation prompt.
+- Compress files or folders into ZIP archives and extract ZIP archives into the current folder.
+- ZIP operations reject unsafe paths and enforce limits for entry count, folder depth and expanded data. Compression excludes its own output file when the destination is inside the source folder.
+
+### Built-in viewers
+- Image preview with down-sampled decoding to keep memory use bounded.
+- UTF-8 text editor for common text and source formats.
+- Offline HTML viewer with JavaScript and network loading disabled.
+- Audio and video playback through AndroidX Media3.
+- ZIP content listing with bounded preview work.
+
+Text and ZIP previews are limited to 32 MB of source data. ZIP listing also has a 64 MB expanded-data budget. Large files can be opened with another installed app where supported.
+
+### Network
+- Current connection type, validated internet state, IP address and device-wide RX/TX throughput.
+- Optional speed test using Cloudflare's public speed.cloudflare.com measurement endpoint. A test transfers approximately 25 MB for download and 5 MB for upload, so it uses mobile data when run over a cellular connection.
+
+### Package installer
+- Supports APK, APKM, APKS, APKX and XAPK archives.
+- Split APKs are staged into a single Android PackageInstaller session.
+- Archive inspection is bounded to 20,000 entries, 32 APK splits and 1 GB of expanded APK data.
+- Android owns the final install confirmation. Atomos never silently bypasses the system installer.
+
+## Platform and build
+
 - Android 10 (API 29) and newer.
-- Native branded Android splash screen followed by a required Discord OAuth sign-in gate through Supabase Auth using PKCE.
-- Encrypted local session storage backed by Android Keystore.
-- Live network connectivity, transport, validated-internet state, local IP and device-wide RX/TX throughput.
-- Internet speed test with download, upload, latency and jitter measurements.
-- File-first explorer with a navigation drawer, category filters, breadcrumb navigation, search, list/grid layouts, sorting, hidden-file visibility, contextual three-dot menus, file details, folder creation, copy/move, rename and delete.
-- Storage Access Framework permissions: Atomos only sees folders explicitly granted by the user. The browser does not silently scan the entire device.
-- APK, APKM, APKS, APKX and XAPK archive inspection and local installation through Android PackageInstaller, including bounded multi-APK split sessions. XAPK OBB expansion data is not currently restored automatically.
-- ABI-specific APKs plus a universal APK.
-- Utility tiles are independent UI modules, ready for future additions.
+- Kotlin, Jetpack Compose and AndroidX Media3.
+- JDK 17, Android SDK 35 and Gradle 8.9.
+- Build locally with `gradle :app:assembleDebug` or `gradle :app:assembleRelease`.
+- GitHub Actions builds debug APKs on pull requests and signed release APKs on pushes to `main` or version tags. ABI-specific and universal APKs are produced.
 
-## Authentication
+## Release signing
 
-Configure the Discord provider in the Supabase project under Authentication > Sign In / Providers > Discord. Set the Discord OAuth client credentials and add the Supabase callback URL to the Discord developer application. The app uses the dev.atomos.bridge://auth-callback redirect URI. Configure this URI in the Supabase redirect allow-list.
+Release builds retain the existing Atomos signing identity. GitHub Actions expects these repository secrets:
 
-The app requires a successful Discord sign-in after the native splash screen before opening the file browser or utilities. There is no GitHub-user allow-list or single-device restriction. Each Discord-authenticated Supabase user can use the app on their own devices. Access tokens are stored encrypted using Android Keystore and refreshed when possible.
+- `ANDROID_SIGNING_KEY_BASE64`
+- `ANDROID_SIGNING_STORE_PASSWORD`
+- `ANDROID_SIGNING_KEY_ALIAS`
+- `ANDROID_SIGNING_KEY_PASSWORD`
 
-## APK signing
+Do not generate a replacement keystore for routine releases. Losing the existing signing key would prevent seamless updates over already installed signed builds.
 
-Release builds retain the existing Atomos APK signing identity. GitHub Actions expects these repository secrets:
+## Legacy backend files
 
-- ANDROID_SIGNING_KEY_BASE64
-- ANDROID_SIGNING_STORE_PASSWORD
-- ANDROID_SIGNING_KEY_ALIAS
-- ANDROID_SIGNING_KEY_PASSWORD
-
-Do not generate a replacement keystore for routine releases. Losing the original signing key would prevent seamless updates over already installed signed builds.
-
-## Build
-
-- JDK 17
-- Android SDK 35
-- Gradle 8.9
-- gradle :app:assembleDebug
-- gradle :app:assembleRelease
-
-GitHub Actions builds debug and signed release APKs, publishes signed APKs to GitHub Releases, and includes ABI variants and a universal APK.
+The `supabase/migrations` directory contains historical migrations from an earlier device-bridge prototype. They are retained for audit/history and are **not required by this local Android app**. Do not apply them to a new project for the local-only app. The retired `atomos-device-bridge` Edge Function is represented by a 410 Gone stub; no Android feature calls it. The separate legacy `atomos-app-api` endpoint is not part of this repository or used by this app.
 
 ## Privacy and platform behavior
 
-- File access is granted through Android's Storage Access Framework; there is no broad storage permission.
-- Package installation always passes through Android's system installer and user confirmation.
-- Network throughput uses Android traffic counters and represents total device traffic, not only Atomos traffic.
-- Speed tests use Cloudflare's public speed measurement endpoints. Network results depend on routing, server distance and carrier policies.
-- No SMS, accessibility, notification-listener, remote-control, or always-running background service permissions are requested.
+- The Android manifest requests only internet access, network-state access and permission to request package installation.
+- Network activity occurs only for the optional speed test and for opening unsupported file types in an external app chosen by the user.
+- Package installation and external file opening remain subject to Android's own user prompts and permission model.
