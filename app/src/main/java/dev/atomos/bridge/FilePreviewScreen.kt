@@ -33,7 +33,7 @@ fun FilePreviewScreen(file: DocumentFile, onBack: () -> Unit) {
     val name = file.name ?: "File"
     val ext = name.substringAfterLast('.', "").lowercase()
     var bytes by remember(file.uri) { mutableStateOf<ByteArray?>(null) }
-    var error by remember(file.uri) { mutableStateOf<String?>(null) }
+    var previewError by remember(file.uri) { mutableStateOf<String?>(null) }
     var loading by remember(file.uri) { mutableStateOf(true) }
     var editorText by remember(file.uri) { mutableStateOf("") }
     var dirty by remember(file.uri) { mutableStateOf(false) }
@@ -41,6 +41,7 @@ fun FilePreviewScreen(file: DocumentFile, onBack: () -> Unit) {
     var bitmap by remember(file.uri) { mutableStateOf<android.graphics.Bitmap?>(null) }
     var zipEntries by remember(file.uri) { mutableStateOf<List<Pair<String, Long>>>(emptyList()) }
     LaunchedEffect(file.uri) {
+        if (ext in setOf("mp3","m4a","aac","ogg","wav","flac","opus","mp4","mkv","mov","webm","3gp","m4v")) { loading = false; return@LaunchedEffect }
         try {
             val data = withContext(Dispatchers.IO) {
                 context.contentResolver.openInputStream(file.uri)?.use { input ->
@@ -57,7 +58,7 @@ fun FilePreviewScreen(file: DocumentFile, onBack: () -> Unit) {
                 ZipInputStream(data.inputStream()).use { z -> while (true) { val e = z.nextEntry ?: break; list += e.name to e.size; z.closeEntry(); require(list.size <= 10000) { "Archive has too many entries." } } }
                 list
             }
-        } catch (e: Exception) { error = e.message ?: "Cannot preview file." } finally { loading = false }
+        } catch (e: Exception) { previewError = e.message ?: "Cannot preview file." } finally { loading = false }
     }
     Scaffold(topBar = {
         TopAppBar(title = { Column { Text(name, maxLines = 1); Text(when {
@@ -74,7 +75,7 @@ fun FilePreviewScreen(file: DocumentFile, onBack: () -> Unit) {
         Box(Modifier.fillMaxSize().padding(padding)) {
             when {
                 loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                error != null -> Text(error ?: "Error", Modifier.align(Alignment.Center).padding(24.dp), color = MaterialTheme.colorScheme.error)
+                previewError != null -> Text(previewError ?: "Error", Modifier.align(Alignment.Center).padding(24.dp), color = MaterialTheme.colorScheme.error)
                 ext == "zip" -> LazyColumn(contentPadding = PaddingValues(16.dp)) {
                     item { Text("${zipEntries.size} entries", style = MaterialTheme.typography.titleMedium) }
                     items(zipEntries) { (entry,size) -> ListItem(headlineContent = { Text(entry) }, supportingContent = { Text(if (size < 0) "Folder" else android.text.format.Formatter.formatShortFileSize(context,size)) }) }
@@ -101,6 +102,6 @@ fun FilePreviewScreen(file: DocumentFile, onBack: () -> Unit) {
         if (saving) try {
             withContext(Dispatchers.IO) { context.contentResolver.openOutputStream(file.uri, "wt")?.use { it.write(editorText.toByteArray(Charsets.UTF_8)) } ?: error("Cannot save file.") }
             dirty = false
-        } catch (e: Exception) { error = e.message ?: "Save failed." } finally { saving = false }
+        } catch (e: Exception) { previewError = e.message ?: "Save failed." } finally { saving = false }
     }
 }
