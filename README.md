@@ -6,11 +6,12 @@ Atomos is a modular Android utility suite focused on network visibility, local f
 
 - Native Kotlin + Jetpack Compose application.
 - Android 10 (API 29) and newer.
-- Discord OAuth through Supabase Auth using PKCE.
+- Native branded Android splash screen followed by a required Discord OAuth sign-in gate through Supabase Auth using PKCE.
 - Encrypted local session storage backed by Android Keystore.
 - Live network connectivity, transport, validated-internet state, local IP and device-wide RX/TX throughput.
 - Internet speed test with download, upload, latency and jitter measurements.
-- Storage Access Framework file browser with folder creation, navigation, file copy/move, rename and delete. Atomos only sees folders explicitly granted by the user.
+- File-first explorer with a navigation drawer, category filters, breadcrumb navigation, search, list/grid layouts, sorting, hidden-file visibility, contextual three-dot menus, file details, folder creation, copy/move, rename and delete.
+- Storage Access Framework permissions: Atomos only sees folders explicitly granted by the user. The browser does not silently scan the entire device.
 - APK, APKM, APKS, APKX and XAPK archive inspection and local installation through Android PackageInstaller, including bounded multi-APK split sessions. XAPK OBB expansion data is not currently restored automatically.
 - ABI-specific APKs plus a universal APK.
 - Utility tiles are independent UI modules, ready for future additions.
@@ -19,7 +20,7 @@ Atomos is a modular Android utility suite focused on network visibility, local f
 
 Configure the Discord provider in the Supabase project under Authentication > Sign In / Providers > Discord. Set the Discord OAuth client credentials and add the Supabase callback URL to the Discord developer application. The app uses the dev.atomos.bridge://auth-callback redirect URI. Configure this URI in the Supabase redirect allow-list.
 
-There is no GitHub-user allow-list or single-device restriction. Each Discord-authenticated Supabase user can use the app on their own devices. Access tokens are stored encrypted using Android Keystore.
+The app requires a successful Discord sign-in after the native splash screen before opening the file browser or utilities. There is no GitHub-user allow-list or single-device restriction. Each Discord-authenticated Supabase user can use the app on their own devices. Access tokens are stored encrypted using Android Keystore and refreshed when possible.
 
 ## APK signing
 
