@@ -33,10 +33,12 @@ async function userFrom(req: Request) {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
-  const contentLength = Number(req.headers.get("content-length") || "0");
-  if (contentLength > 16_384) return json({ error: "request_too_large" }, 413);
   let body: Record<string, unknown>;
-  try { body = await req.json(); } catch { return json({ error: "invalid_json" }, 400); }
+  try {
+    const raw = await req.text();
+    if (new TextEncoder().encode(raw).length > 16_384) return json({ error: "request_too_large" }, 413);
+    body = JSON.parse(raw);
+  } catch { return json({ error: "invalid_json" }, 400); }
   if (!body || typeof body !== "object" || Array.isArray(body)) return json({ error: "invalid_request" }, 400);
 
   if (body.action === "create_pairing") {
@@ -44,6 +46,11 @@ Deno.serve(async (req) => {
     if (!user) return json({ error: "unauthorized" }, 401);
     const deviceName = String(body.device_name || "Android device").trim().slice(0, 80);
     if (!deviceName) return json({ error: "device_name_required" }, 400);
+    const { count, error: rateError } = await admin.schema("private").from("pairing_challenges")
+      .select("id", { count: "exact", head: true }).eq("owner_id", user.id)
+      .gt("created_at", new Date(Date.now() - 15 * 60_000).toISOString());
+    if (rateError) return json({ error: "pairing_rate_check_failed" }, 503);
+    if ((count || 0) >= 5) return json({ error: "pairing_rate_limited", retry_after_seconds: 900 }, 429);
     const code = randomToken(6).toUpperCase();
     const expires = new Date(Date.now() + 180_000).toISOString();
     const { error } = await admin.schema("private").from("pairing_challenges").insert({
