@@ -488,7 +488,7 @@ private fun uniqueChildName(parent: DocumentFile, desired: String): String {
     var suffix = 1
     var candidate: String
     do {
-        candidate = "$§{stem} ($§{suffix})$§{extension}"
+        candidate = "${stem} (${suffix})${extension}"
         suffix++
     } while (parent.findFile(candidate) != null && suffix < 100_000)
     require(parent.findFile(candidate) == null) { "Could not generate a unique output name." }
@@ -499,7 +499,7 @@ private fun compressToZip(context: android.content.Context, source: DocumentFile
     val parent = destination ?: error("Choose a storage folder first.")
     val originalName = source.name ?: "archive"
     val stem = originalName.substringBeforeLast('.', originalName)
-    val zipName = uniqueChildName(parent, "$§{stem}.zip")
+    val zipName = uniqueChildName(parent, "${stem}.zip")
     val target = parent.createFile("application/zip", zipName) ?: error("Cannot create ZIP.")
     val visited = mutableSetOf<String>()
     val buffer = ByteArray(64 * 1024)
@@ -521,11 +521,11 @@ private fun compressToZip(context: android.content.Context, source: DocumentFile
                 require(entryPath.length <= 4096) { "ZIP path is too long." }
 
                 if (item.isDirectory) {
-                    val directoryPath = if (entryPath.endsWith("/")) entryPath else "$§{entryPath}/"
+                    val directoryPath = if (entryPath.endsWith("/")) entryPath else "${entryPath}/"
                     zip.putNextEntry(java.util.zip.ZipEntry(directoryPath))
                     zip.closeEntry()
                     item.listFiles().forEach { child ->
-                        add(child, "$§{directoryPath}$§{safeArchiveSegment(child.name ?: "unnamed")}", depth + 1)
+                        add(child, "${directoryPath}${safeArchiveSegment(child.name ?: "unnamed")}", depth + 1)
                     }
                 } else {
                     zip.putNextEntry(java.util.zip.ZipEntry(entryPath))
@@ -537,7 +537,7 @@ private fun compressToZip(context: android.content.Context, source: DocumentFile
                             require(totalBytes <= 1_000_000_000L) { "Selected files exceed the 1 GB ZIP creation limit." }
                             zip.write(buffer, 0, count)
                         }
-                    } ?: error("Cannot read §{item.name}.")
+                    } ?: error("Cannot read ${item.name}.")
                     zip.closeEntry()
                 }
             }
@@ -590,7 +590,7 @@ private fun extractZip(context: android.content.Context, archive: DocumentFile, 
                     val desiredName = parts.last()
                     val outputName = uniqueChildName(directory, desiredName)
                     val mimeType = java.net.URLConnection.guessContentTypeFromName(outputName) ?: "application/octet-stream"
-                    val output = directory.createFile(mimeType, outputName) ?: error("Cannot create $§{outputName}.")
+                    val output = directory.createFile(mimeType, outputName) ?: error("Cannot create ${outputName}.")
                     created += output
                     try {
                         context.contentResolver.openOutputStream(output.uri, "w")?.use { stream ->
