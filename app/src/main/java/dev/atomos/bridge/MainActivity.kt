@@ -12,7 +12,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -125,7 +124,6 @@ private fun BridgeDashboard(store: SecureStore, api: AtomosApi, openAccessibilit
                 else -> {
                     Text("SECURE PAIRING", color = Muted, fontSize = 10.sp, letterSpacing = 2.sp)
                     Button(onClick = { task {
-                        var bearer = store.get("access") ?: error("Please sign in again.")
                         val extra = JSONObject().put("device_name", "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}").put("app_version", "0.2.0")
                         val challenge = api.callAsUser("create_pairing", store, extra)
                         val claimed = api.callAsUser("claim_pairing", store, JSONObject()
