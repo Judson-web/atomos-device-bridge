@@ -71,7 +71,7 @@ jobs:
             VERSION="${GITHUB_REF_NAME#v}"
             TAG="$GITHUB_REF_NAME"
           else
-            VERSION="$(sed -nE 's/.*versionName="([^"]+)".*/\1/p' app/build.gradle.kts | head -n1)"
+            VERSION="$(sed -nE 's/.*versionName[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' app/build.gradle.kts | head -n1)"
             if [[ -z "$VERSION" ]]; then
               echo "::error::Could not read versionName from app/build.gradle.kts"
               exit 1
