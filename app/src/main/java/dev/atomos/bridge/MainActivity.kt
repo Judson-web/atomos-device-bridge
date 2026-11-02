@@ -212,10 +212,9 @@ private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> U
         } else if (authState != "authenticated" || user == null) {
             AuthGateScreen(error = authError, launching = authLaunching, onSignIn = beginSignIn)
         } else Scaffold(
-        Scaffold(
             containerColor = Background,
             topBar = {
-                CenterAlignedTopAppBar(
+                if (page != "Files") CenterAlignedTopAppBar(
                     title = { Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("ATOMOS", fontWeight = FontWeight.Black, letterSpacing = 3.sp, fontSize = 16.sp)
                         Text(if (network.connected) "${network.transport} · ↓ ${formatRate(network.downloadBps)} · ↑ ${formatRate(network.uploadBps)}" else "No internet connection", style = MaterialTheme.typography.labelSmall, color = if (network.connected) Violet else MaterialTheme.colorScheme.error)
@@ -225,14 +224,33 @@ private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> U
                 )
             },
             bottomBar = {
-                NavigationBar(containerColor = SurfaceDark) {
+                if (page != "Files") NavigationBar(containerColor = SurfaceDark) {
                     listOf("Home", "Network", "Files", "Installer", "Settings").forEach { item ->
                         NavigationBarItem(selected = page == item, onClick = { page = item }, icon = { Text(when(item) { "Home" -> "⌂"; "Network" -> "⌁"; "Files" -> "▤"; "Installer" -> "⬇"; else -> "⚙" }) }, label = { Text(item) })
                     }
                 }
             }
         ) { padding ->
-            Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 18.dp)) {
+            if (page == "Files") {
+                FileManagerScreen(
+                    onNavigate = { page = it },
+                    onInstallPackage = { file ->
+                        scope.launch {
+                            busy = true
+                            try {
+                                val prepared = withContext(Dispatchers.IO) {
+                                    val target = File(context.cacheDir, "file-${System.currentTimeMillis()}-${file.name}")
+                                    context.contentResolver.openInputStream(file.uri)?.use { input -> target.outputStream().use { input.copyTo(it) } } ?: error("Unable to read selected file.")
+                                    ArchiveInstaller.prepare(context, target)
+                                }
+                                ArchiveInstaller.install(context, prepared.files)
+                                status = "Installer session started for ${prepared.label}"
+                            } catch (e: Exception) { status = e.message ?: "Install failed." }
+                            finally { busy = false }
+                        }
+                    }
+                )
+            } else Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 18.dp)) {
                 when (page) {
                     "Home" -> HomePage(network, user, status, onNetwork = { page = "Network" }, onFiles = { page = "Files" }, onInstaller = { page = "Installer" }, onSpeed = { page = "Network" })
                     "Network" -> NetworkPage(network, speedResult, speedBusy, speedProgress) {
@@ -243,36 +261,9 @@ private fun AtomosApp(store: SecureStore, callback: Uri?, clearCallback: () -> U
                             finally { speedBusy = false; speedProgress = 1f }
                         }
                     }
-                    "Files" -> FilesPage(folderUri, currentDirectory, entries, folderName, { folderName = it }, { treePicker.launch(null) }, {
-                        val target = currentDirectory
-                        if (target != null && folderName.isNotBlank()) {
-                            if (target.createDirectory(folderName.trim()) != null) { folderName = ""; refreshFiles(target) } else status = "Could not create folder."
-                        }
-                    }, { file ->
-                        if (file.isDirectory) { currentDirectory = file; refreshFiles(file) }
-                        else if (file.name?.substringAfterLast('.', "")?.lowercase() in setOf("apk","apkm","apks","apkx","xapk")) {
-                            scope.launch {
-                                try {
-                                    val prepared = withContext(Dispatchers.IO) {
-                                        val target = File(context.cacheDir, "file-${System.currentTimeMillis()}-${file.name}")
-                                        context.contentResolver.openInputStream(file.uri)?.use { input -> target.outputStream().use { input.copyTo(it) } } ?: error("Unable to read file.")
-                                        ArchiveInstaller.prepare(context, target)
-                                    }
-                                    ArchiveInstaller.install(context, prepared.files); status = "Installer session started."
-                                } catch (e: Exception) { status = e.message ?: "Install failed." }
-                            }
-                        } else status = file.name ?: "Selected file"
-                    }, { file -> renameTarget = file; renameValue = file.name.orEmpty() }, { file -> if (file.delete()) refreshFiles(currentDirectory) else status = "Android could not delete this item." }, { file, move -> transferSource = file; transferMove = move; destinationPicker.launch(null) }, { currentDirectory = currentDirectory?.parentFile ?: folderUri?.let { DocumentFile.fromTreeUri(context, it) }; refreshFiles(currentDirectory) }, renameTarget, renameValue, { renameValue = it }, {
-                        if (renameTarget?.renameTo(renameValue.trim()) == true) status = "Renamed successfully." else status = "Android could not rename this item."; renameTarget = null; refreshFiles(currentDirectory)
-                    }, { renameTarget = null })
                     "Installer" -> InstallerPage(status, busy, { filePicker.launch(arrayOf("*/*")) }, { status = "Supported: APK, APKM, APKS, APKX and XAPK. Split archives are installed as one package session." })
-                    "Settings" -> SettingsPage(user, status, { 
-                        scope.launch { try {
-                            val verifier = auth.verifier(); store.put("oauth_verifier", verifier)
-                            openBrowser(auth.discordUrl(verifier))
-                        } catch (e: Exception) { status = e.message ?: "Unable to start sign-in." } }
-                    }, {
-                        store.remove("access", "refresh", "oauth_verifier"); access = null; user = null; status = "Signed out."
+                    "Settings" -> SettingsPage(user, status, beginSignIn, {
+                        store.remove("access", "refresh", "oauth_verifier"); access = null; user = null; authState = "signed_out"; authError = null; status = "Signed out."
                     }, network.ipAddress)
                 }
                 Spacer(Modifier.height(8.dp))
