@@ -12,6 +12,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -56,13 +60,24 @@ private fun BridgeDashboard(store: SecureStore, api: AtomosApi, openAccessibilit
     var status by remember { mutableStateOf(if (deviceToken == null) "Not paired" else "Registered device") }
     var message by remember { mutableStateOf("Sign in to register this phone to your account.") }
     var accessibility by remember { mutableStateOf(BridgeState.isAccessibilityConnected()) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) accessibility = BridgeState.isAccessibilityConnected()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     fun task(block: suspend () -> Unit) {
         if (busy) return
         busy = true
         scope.launch {
             try { withContext(Dispatchers.IO) { block() } }
-            catch (e: Exception) { message = e.message ?: "Request failed." }
+            catch (e: Exception) {
+                message = e.message ?: "Request failed."
+                if (message.contains("sign in again", ignoreCase = true)) stage = "email"
+            }
             finally { busy = false }
         }
     }
@@ -112,15 +127,8 @@ private fun BridgeDashboard(store: SecureStore, api: AtomosApi, openAccessibilit
                     Button(onClick = { task {
                         var bearer = store.get("access") ?: error("Please sign in again.")
                         val extra = JSONObject().put("device_name", "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}").put("app_version", "0.2.0")
-                        val challenge = try { api.call("create_pairing", bearer, extra = extra) }
-                        catch (e: Exception) {
-                            if (!(e.message?.contains("unauthorized", true) ?: false)) throw e
-                            val refreshed = api.refresh(store.get("refresh") ?: error("Session expired. Sign in again."))
-                            store.put("access", refreshed.accessToken); store.put("refresh", refreshed.refreshToken)
-                            bearer = refreshed.accessToken
-                            api.call("create_pairing", bearer, extra = extra)
-                        }
-                        val claimed = api.call("claim_pairing", bearer, extra = JSONObject()
+                        val challenge = api.callAsUser("create_pairing", store, extra)
+                        val claimed = api.callAsUser("claim_pairing", store, JSONObject()
                             .put("code", challenge.getString("code"))
                             .put("device_name", "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}"))
                         deviceId = claimed.getString("device_id")
@@ -137,7 +145,7 @@ private fun BridgeDashboard(store: SecureStore, api: AtomosApi, openAccessibilit
                         message = "The cloud validated this device credential."
                     } }, enabled = !busy && deviceToken != null, modifier = Modifier.fillMaxWidth()) { Text("Test secure connection") }
                     OutlinedButton(onClick = { task {
-                        api.call("revoke_device", store.get("access"), extra = JSONObject().put("device_id", deviceId))
+                        api.callAsUser("revoke_device", store, JSONObject().put("device_id", deviceId))
                         store.remove("device_token", "device_id")
                         deviceToken = null; deviceId = ""; status = "Access revoked"
                         message = "The cloud credential has been revoked."
@@ -159,7 +167,7 @@ private fun BridgeDashboard(store: SecureStore, api: AtomosApi, openAccessibilit
             Button(onClick = openAccessibility, modifier = Modifier.fillMaxWidth()) { Text("Accessibility settings") }
             OutlinedButton(onClick = openNotifications, modifier = Modifier.fillMaxWidth()) { Text("Optional notification access") }
             Text("Important: pairing authenticates this phone only. Internet-based remote commands and the MCP transport are not active yet. Screen capture still requires a separate Android MediaProjection consent.", color = Color(0xFF7D88A0), fontSize = 11.sp)
-            Text("ATOMOS DEVICE BRIDGE  •  v0.2.0", color = Color(0xFF596277), fontSize = 10.sp, letterSpacing = 1.4.sp)
+            Text("ATOMOS DEVICE BRIDGE  •  v0.2.1", color = Color(0xFF596277), fontSize = 10.sp, letterSpacing = 1.4.sp)
         }
     }
 }
