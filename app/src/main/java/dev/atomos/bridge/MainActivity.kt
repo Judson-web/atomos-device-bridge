@@ -21,6 +21,7 @@ import androidx.compose.runtime.*
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.rememberDrawerState
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -47,6 +48,7 @@ class MainActivity:ComponentActivity(){
 }
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable private fun AtomosApp(store:SecureStore,api:AtomosApi,callback:Uri?,openOAuth:(String)->Unit,openAccessibility:()->Unit,composeSms:(String,String)->Unit,readSms:()->List<SmsMessageItem>,startCloud:()->Unit,stopCloud:()->Unit){
+    val context=LocalContext.current
     val scope=rememberCoroutineScope();var stage by remember { mutableStateOf(if(store.get("access")!=null)"signed" else "github") };var page by remember { mutableStateOf("Home") };var drawer by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) };var message by remember { mutableStateOf("Your personal cloud-connected device bridge.") }
     var deviceId by remember { mutableStateOf(store.get("device_id").orEmpty()) };var token by remember { mutableStateOf(store.get("device_token")) }
@@ -148,7 +150,7 @@ class MainActivity:ComponentActivity(){
                             Text("PRIVATE MESSAGES",color=Violet,fontSize=11.sp,letterSpacing=2.sp,fontWeight=FontWeight.Bold)
                             Text("SMS reader",color=Color.White,fontSize=25.sp,fontWeight=FontWeight.Bold)
                             Text("Read-only access to SMS stored on this phone, limited to the last seven days and up to 100 newest messages. Nothing is sent or deleted.",color=Muted,fontSize=13.sp)
-                            Button(enabled=!busy,onClick={if(SmsReader.hasPermission(this@MainActivity))runTask{localMessages=withContext(Dispatchers.IO){readSms()};message="Loaded ${localMessages.size} messages."}else smsPermissionLauncher.launch(android.Manifest.permission.READ_SMS)},modifier=Modifier.fillMaxWidth()){Text(if(SmsReader.hasPermission(this@MainActivity))"Refresh local messages" else "Grant SMS access")}
+                            Button(enabled=!busy,onClick={if(SmsReader.hasPermission(context))runTask{localMessages=withContext(Dispatchers.IO){readSms()};message="Loaded ${localMessages.size} messages."}else smsPermissionLauncher.launch(android.Manifest.permission.READ_SMS)},modifier=Modifier.fillMaxWidth()){Text(if(SmsReader.hasPermission(context))"Refresh local messages" else "Grant SMS access")}
                             localMessages.forEach { item ->
                                 Card(colors=CardDefaults.cardColors(containerColor=Panel),shape=RoundedCornerShape(16.dp)){
                                     Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(5.dp)){
