@@ -154,5 +154,5 @@ jobs:
           target_commitish: ${{ github.sha }}
           name: Atomos Utility Suite ${{ steps.version.outputs.version }}
           generate_release_notes: true
-          files: app/build/outputs/apk/release/*.apk
+          files: app/build/outputs/apk/release/**/*.apk
           fail_on_unmatched_files: true
