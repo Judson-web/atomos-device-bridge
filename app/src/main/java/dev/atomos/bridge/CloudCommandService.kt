@@ -67,7 +67,18 @@ class CloudCommandService : Service() {
         val id = command.optString("id")
         val type = command.optString("command_type")
         val payload = command.optJSONObject("payload") ?: JSONObject()
-        val result = withContext(Dispatchers.Main) {
+        val result = if (type == "sms_fetch") {
+            withContext(Dispatchers.IO) {
+                if (!SmsReader.hasPermission(this@CloudCommandService)) {
+                    JSONObject().put("ok", false).put("error", "sms_permission_required")
+                } else {
+                    runCatching {
+                        val messages = SmsReader.readLastSevenDays(this@CloudCommandService)
+                        JSONObject().put("ok", true).put("result", SmsReader.toJson(messages))
+                    }.getOrElse { JSONObject().put("ok", false).put("error", "sms_read_failed") }
+                }
+            }
+        } else withContext(Dispatchers.Main) {
             val service = BridgeState.service()
             if (service == null) JSONObject().put("ok", false).put("error", "accessibility_service_unavailable")
             else service.executeCloudCommand(type, payload)
@@ -75,7 +86,8 @@ class CloudCommandService : Service() {
         runCatching {
             api.call("complete_command", device = store.get("device_token"),
                 extra = JSONObject().put("command_id", id).put("success", result.optBoolean("ok"))
-                    .put("result", result).put("error", result.optString("error")))
+                     .put("result", if (type == "sms_fetch") result.optJSONObject("result") ?: JSONObject() else result)
+                    .put("error", result.optString("error")))
         }
         updateNotification("Connected • Last command: $type")
     }
