@@ -16,7 +16,7 @@ class AtomosAccessibilityService : AccessibilityService() {
     override fun onInterrupt() {}
 
     fun inspectVisibleUi(maxDepth: Int = 8): List<UiNodeSnapshot> {
-        val budget = intArrayOf(500)
+        val budget = intArrayOf(40)
         val roots = windows.take(8).mapNotNull { it.root }.ifEmpty { listOfNotNull(rootInActiveWindow) }
         return roots.mapNotNull { node ->
             try { if (budget[0] <= 0) null else snapshot(node, 0, maxDepth.coerceIn(1, 12), budget) }
@@ -58,7 +58,7 @@ class AtomosAccessibilityService : AccessibilityService() {
         val ok=when(type) {
             "inspect" -> {
                 val roots=JSONArray()
-                inspectVisibleUi().forEach { roots.put(it.toJson()) }
+                inspectVisibleUi(maxDepth = 5).forEach { roots.put(it.toJson()) }
                 return JSONObject().put("ok",true).put("windows",roots)
             }
             "tap" -> tap(p.optDouble("x",Double.NaN).toFloat(),p.optDouble("y",Double.NaN).toFloat())
