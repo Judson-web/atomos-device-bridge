@@ -73,17 +73,12 @@ fun FileManagerScreen(
     var toast by remember { mutableStateOf("") }
     var previewFile by remember { mutableStateOf<DocumentFile?>(null) }
     var busyFiles by remember { mutableStateOf(false) }
+    var reloadVersion by remember { mutableIntStateOf(0) }
+    var deleteTarget by remember { mutableStateOf<DocumentFile?>(null) }
 
     val current = path.lastOrNull() ?: rootUri?.let { DocumentFile.fromTreeUri(context, it) }
     fun reload() {
-        val dir = current
-        scope.launch {
-            loading = true
-            entries = withContext(Dispatchers.IO) {
-                dir?.listFiles()?.filter { showHidden || !(it.name ?: "").startsWith(".") }?.toList().orEmpty()
-            }
-            loading = false
-        }
+        reloadVersion++
     }
     val rootPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
@@ -138,7 +133,24 @@ fun FileManagerScreen(
         }
     }
 
-    LaunchedEffect(rootUri, path.size, path.lastOrNull()?.uri, showHidden) { reload() }
+    LaunchedEffect(rootUri, path.lastOrNull()?.uri, showHidden, reloadVersion) {
+        val directory = current
+        loading = true
+        try {
+            val loaded = withContext(Dispatchers.IO) {
+                directory?.listFiles()
+                    ?.filter { showHidden || !(it.name ?: "").startsWith(".") }
+                    ?.toList()
+                    .orEmpty()
+            }
+            if (current?.uri == directory?.uri) entries = loaded
+        } catch (e: Exception) {
+            entries = emptyList()
+            toast = e.message ?: "Unable to read this folder. Check its storage permission."
+        } finally {
+            loading = false
+        }
+    }
 
     val filtered = remember(entries, search, category, sortBy) {
         entries.filter { file ->
@@ -179,20 +191,22 @@ fun FileManagerScreen(
     }
     fun createFolder() {
         val name = createName.trim()
-        if (name.isEmpty()) return
-        scope.launch {
-            val result = withContext(Dispatchers.IO) { current?.createDirectory(name) }
-            toast = if (result != null) "Folder created" else "Could not create folder"
-            createName = ""
-            createDialog = false
-            reload()
+        if (!isSafeFileName(name)) {
+            toast = "Use a valid folder name without path separators."
+            return
         }
-    }
-    fun deleteFile(file: DocumentFile) {
         scope.launch {
-            val ok = withContext(Dispatchers.IO) { file.delete() }
-            toast = if (ok) "Deleted" else "Android could not delete this item"
-            reload()
+            try {
+                val result = withContext(Dispatchers.IO) { current?.createDirectory(name) }
+                toast = if (result != null) "Folder created" else "Could not create folder"
+                if (result != null) {
+                    createName = ""
+                    createDialog = false
+                    reload()
+                }
+            } catch (e: Exception) {
+                toast = e.message ?: "Could not create folder"
+            }
         }
     }
 
@@ -328,7 +342,7 @@ fun FileManagerScreen(
                     }
                     TextButton(onClick = { itemMenu = null; renameTarget = file; renameName = file.name.orEmpty() }, modifier = Modifier.fillMaxWidth()) { Text("Rename", modifier = Modifier.fillMaxWidth()) }
                     TextButton(onClick = { itemMenu = null; detailsTarget = file }, modifier = Modifier.fillMaxWidth()) { Text("Details", modifier = Modifier.fillMaxWidth()) }
-                    TextButton(onClick = { itemMenu = null; deleteFile(file) }, modifier = Modifier.fillMaxWidth()) { Text("Delete", color = MaterialTheme.colorScheme.error, modifier = Modifier.fillMaxWidth()) }
+                    TextButton(onClick = { itemMenu = null; deleteTarget = file }, modifier = Modifier.fillMaxWidth()) { Text("Delete", color = MaterialTheme.colorScheme.error, modifier = Modifier.fillMaxWidth()) }
                 }
             },
             confirmButton = { TextButton(onClick = { itemMenu = null }) { Text("Close") } }
@@ -348,11 +362,20 @@ fun FileManagerScreen(
         text = { OutlinedTextField(renameName, { renameName = it }, label = { Text("New name") }, singleLine = true) },
         confirmButton = { TextButton(onClick = {
             val target = renameTarget
-            scope.launch {
-                val ok = withContext(Dispatchers.IO) { target?.renameTo(renameName.trim()) == true }
-                toast = if (ok) "Renamed" else "Could not rename"
-                renameTarget = null
-                reload()
+            val newName = renameName.trim()
+            if (!isSafeFileName(newName)) {
+                toast = "Use a valid name without path separators."
+            } else {
+                scope.launch {
+                    try {
+                        val ok = withContext(Dispatchers.IO) { target?.renameTo(newName) == true }
+                        toast = if (ok) "Renamed" else "Could not rename"
+                        if (ok) reload()
+                        renameTarget = null
+                    } catch (e: Exception) {
+                        toast = e.message ?: "Could not rename"
+                    }
+                }
             }
         }, enabled = renameName.isNotBlank()) { Text("Save") } },
         dismissButton = { TextButton(onClick = { renameTarget = null }) { Text("Cancel") } }
@@ -363,6 +386,28 @@ fun FileManagerScreen(
             title = { Text(file.name ?: "File details") },
             text = { Text(if (file.isDirectory) "Folder\nLast modified: ${file.lastModified()}" else "Type: ${file.type ?: "Unknown"}\nSize: ${android.text.format.Formatter.formatShortFileSize(context, file.length())}\nModified: ${file.lastModified()}") },
             confirmButton = { TextButton(onClick = { detailsTarget = null }) { Text("Close") } }
+        )
+    }
+    deleteTarget?.let { file ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text(if (file.isDirectory) "Delete folder?" else "Delete file?") },
+            text = { Text("${file.name ?: "This item"} will be deleted from the selected storage location. This action cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    deleteTarget = null
+                    scope.launch {
+                        try {
+                            val deleted = withContext(Dispatchers.IO) { file.delete() }
+                            toast = if (deleted) "Deleted" else "Android could not delete this item"
+                            if (deleted) reload()
+                        } catch (e: Exception) {
+                            toast = e.message ?: "Delete failed"
+                        }
+                    }
+                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("Cancel") } }
         )
     }
 }
