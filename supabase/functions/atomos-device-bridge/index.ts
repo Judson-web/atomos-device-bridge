@@ -128,6 +128,92 @@ Deno.serve(async (req) => {
     return json({ revoked: true, device_id: id });
   }
 
+
+  if (body.action === "create_command") {
+    const user = await userFrom(req);
+    if (!user) return json({ error: "unauthorized" }, 401);
+    const deviceId = String(body.device_id || "");
+    const type = String(body.command_type || "");
+    const allowed = ["inspect","tap","swipe","back","home","notifications","type","sms_fetch"];
+    if (!deviceId || !allowed.includes(type)) return json({ error: "invalid_command" }, 400);
+    const payload = body.payload && typeof body.payload === "object" && !Array.isArray(body.payload) ? body.payload : {};
+    if (new TextEncoder().encode(JSON.stringify(payload)).length > 8192) return json({ error: "payload_too_large" }, 413);
+    const { data: device } = await admin.schema("private").from("device_registry")
+      .select("id").eq("id", deviceId).eq("owner_id", user.id).eq("status", "active").maybeSingle();
+    if (!device) return json({ error: "device_not_found" }, 404);
+    const ttl = Math.max(10, Math.min(120, Number(body.ttl_seconds) || 60));
+    const { data, error } = await admin.schema("private").from("device_commands").insert({
+      owner_id: user.id, device_id: deviceId, command_type: type, payload,
+      requested_by: user.id, expires_at: new Date(Date.now() + ttl * 1000).toISOString()
+    }).select("id,device_id,command_type,status,created_at,expires_at").single();
+    if (error) return json({ error: "command_create_failed" }, 500);
+    return json({ command: data });
+  }
+
+  if (body.action === "list_commands") {
+    const user = await userFrom(req);
+    if (!user) return json({ error: "unauthorized" }, 401);
+    const deviceId = String(body.device_id || "");
+    const { data, error } = await admin.schema("private").from("device_commands")
+      .select("id,device_id,command_type,status,created_at,claimed_at,completed_at,result,error,expires_at")
+      .eq("owner_id", user.id).eq("device_id", deviceId)
+      .order("created_at", { ascending: false }).limit(20);
+    if (error) return json({ error: "command_list_failed" }, 500);
+    return json({ commands: data || [] });
+  }
+
+  if (body.action === "cancel_command") {
+    const user = await userFrom(req);
+    if (!user) return json({ error: "unauthorized" }, 401);
+    const id = String(body.command_id || "");
+    const { data, error } = await admin.schema("private").from("device_commands")
+      .update({ status: "cancelled", completed_at: new Date().toISOString() })
+      .eq("id", id).eq("owner_id", user.id).eq("status", "queued").select("id").maybeSingle();
+    if (error || !data) return json({ error: "command_not_cancellable" }, 409);
+    return json({ cancelled: true, command_id: id });
+  }
+
+  if (body.action === "poll_command") {
+    const raw = req.headers.get("x-device-token") || "";
+    if (!/^[a-f0-9]{64}$/.test(raw)) return json({ error: "device_unauthorized" }, 401);
+    const { data: session } = await admin.schema("private").from("device_sessions")
+      .select("id,device_id,device_registry!inner(status)").eq("token_hash", bytea(await digest(raw)))
+      .is("revoked_at", null).gt("expires_at", new Date().toISOString()).maybeSingle();
+    if (!session || session.device_registry?.status !== "active") return json({ error: "device_unauthorized" }, 401);
+    const now = new Date().toISOString();
+    await admin.schema("private").from("device_sessions").update({ last_seen_at: now }).eq("id", session.id);
+    await admin.schema("private").from("device_registry").update({ last_seen_at: now }).eq("id", session.device_id);
+    const { data: pending } = await admin.schema("private").from("device_commands")
+      .select("id,command_type,payload,expires_at").eq("device_id", session.device_id)
+      .eq("status", "queued").gt("expires_at", now).order("created_at", { ascending: true }).limit(1).maybeSingle();
+    if (!pending) return json({ command: null });
+    const { data: claimed, error } = await admin.schema("private").from("device_commands")
+      .update({ status: "claimed", claimed_at: now }).eq("id", pending.id).eq("status", "queued")
+      .gt("expires_at", now).select("id,command_type,payload,expires_at").maybeSingle();
+    if (error || !claimed) return json({ command: null });
+    return json({ command: claimed });
+  }
+
+  if (body.action === "complete_command") {
+    const raw = req.headers.get("x-device-token") || "";
+    if (!/^[a-f0-9]{64}$/.test(raw)) return json({ error: "device_unauthorized" }, 401);
+    const { data: session } = await admin.schema("private").from("device_sessions")
+      .select("id,device_id,device_registry!inner(status)").eq("token_hash", bytea(await digest(raw)))
+      .is("revoked_at", null).gt("expires_at", new Date().toISOString()).maybeSingle();
+    if (!session || session.device_registry?.status !== "active") return json({ error: "device_unauthorized" }, 401);
+    const commandId = String(body.command_id || "");
+    const success = body.success === true;
+    const result = body.result && typeof body.result === "object" && !Array.isArray(body.result) ? body.result : {};
+    if (new TextEncoder().encode(JSON.stringify(result)).length > 12000) return json({ error: "result_too_large" }, 413);
+    const { data, error } = await admin.schema("private").from("device_commands")
+      .update({ status: success ? "completed" : "failed", completed_at: new Date().toISOString(),
+        result, error: String(body.error || "").slice(0, 500) })
+      .eq("id", commandId).eq("device_id", session.device_id).eq("status", "claimed")
+      .select("id,status").maybeSingle();
+    if (error || !data) return json({ error: "command_not_claimed" }, 409);
+    return json({ completed: true, command_id: data.id, status: data.status });
+  }
+
   if (body.action === "device_status") {
     const raw = req.headers.get("x-device-token") || "";
     if (!/^[a-f0-9]{64}$/.test(raw)) return json({ error: "device_unauthorized" }, 401);
