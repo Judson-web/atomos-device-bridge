@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.provider.Settings
 import androidx.core.content.ContextCompat
 import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -17,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.ui.Alignment
@@ -32,21 +34,23 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.text.DateFormat
+import java.util.Date
 
 private val Ink=Color(0xFF080A11);private val Panel=Color(0xFF141927);private val Violet=Color(0xFF9B8CFF);private val Muted=Color(0xFF9AA4B9)
 class MainActivity:ComponentActivity(){
     private var callback by mutableStateOf<Uri?>(null)
     override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState);callback=intent?.data;val store=SecureStore(this);val api=AtomosApi()
-        setContent { AtomosApp(store,api,callback,{callback=null;startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(it)))},{startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))},{number,body->startActivity(Intent(Intent.ACTION_SENDTO,Uri.parse("smsto:"+Uri.encode(number))).putExtra("sms_body",body))},{ContextCompat.startForegroundService(this,Intent(this,CloudCommandService::class.java).setAction(CloudCommandService.ACTION_START))},{startService(Intent(this,CloudCommandService::class.java).setAction(CloudCommandService.ACTION_STOP))}) }
+        setContent { AtomosApp(store,api,callback,{callback=null;startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(it)))},{startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))},{number,body->startActivity(Intent(Intent.ACTION_SENDTO,Uri.parse("smsto:"+Uri.encode(number))).putExtra("sms_body",body))},{SmsReader.readLastSevenDays(this)},{ContextCompat.startForegroundService(this,Intent(this,CloudCommandService::class.java).setAction(CloudCommandService.ACTION_START))},{startService(Intent(this,CloudCommandService::class.java).setAction(CloudCommandService.ACTION_STOP))}) }
     }
     override fun onNewIntent(intent:Intent){super.onNewIntent(intent);setIntent(intent);callback=intent.data}
 }
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable private fun AtomosApp(store:SecureStore,api:AtomosApi,callback:Uri?,openOAuth:(String)->Unit,openAccessibility:()->Unit,composeSms:(String,String)->Unit,startCloud:()->Unit,stopCloud:()->Unit){
+@Composable private fun AtomosApp(store:SecureStore,api:AtomosApi,callback:Uri?,openOAuth:(String)->Unit,openAccessibility:()->Unit,composeSms:(String,String)->Unit,readSms:()->List<SmsMessageItem>,startCloud:()->Unit,stopCloud:()->Unit){
     val scope=rememberCoroutineScope();var stage by remember { mutableStateOf(if(store.get("access")!=null)"signed" else "github") };var page by remember { mutableStateOf("Home") };var drawer by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) };var message by remember { mutableStateOf("Your personal cloud-connected device bridge.") }
     var deviceId by remember { mutableStateOf(store.get("device_id").orEmpty()) };var token by remember { mutableStateOf(store.get("device_token")) }
-    var devices by remember { mutableStateOf(listOf<JSONObject>()) };var commands by remember { mutableStateOf(listOf<JSONObject>()) };var cloudActive by remember { mutableStateOf(false) }
+    var localMessages by remember { mutableStateOf(listOf<SmsMessageItem>()) };var devices by remember { mutableStateOf(listOf<JSONObject>()) };var commands by remember { mutableStateOf(listOf<JSONObject>()) };var cloudActive by remember { mutableStateOf(false) }
     var x by remember { mutableStateOf("300") };var y by remember { mutableStateOf("600") };var inputText by remember { mutableStateOf("") };var smsNumber by remember { mutableStateOf("") };var smsBody by remember { mutableStateOf("") };var confirmSms by remember { mutableStateOf(false) };var authFailed by remember { mutableStateOf(false) }
     val owner=LocalLifecycleOwner.current
     fun runTask(block:suspend()->Unit){if(busy)return;busy=true;scope.launch{try{block()}catch(e:Exception){message=e.message?: "Request failed"}finally{busy=false}}}
@@ -55,7 +59,8 @@ class MainActivity:ComponentActivity(){
     LaunchedEffect(Unit){val existing=store.get("access");if(existing!=null){val allowed=withContext(Dispatchers.IO){runCatching{api.githubIdentityAllowed(existing)}.getOrDefault(false)};if(!allowed){store.remove("access","refresh");stage="github";authFailed=true;message="Saved session is not authorized. Sign in with the registered GitHub account."}}}
     LaunchedEffect(token){if(token!=null){try{val r=withContext(Dispatchers.IO){api.call("device_status",device=token)};message=if(r.optBoolean("authenticated"))"Cloud device verified" else "Device unavailable"}catch(e:Exception){message=e.message?: "Device offline"}}}
     DisposableEffect(owner){val o=LifecycleEventObserver{_,e->if(e==Lifecycle.Event.ON_RESUME)cloudActive=CloudCommandService::class.java.let { false }};owner.lifecycle.addObserver(o);onDispose{owner.lifecycle.removeObserver(o)}}
-    val nav=listOf("Home","Control","Devices","Settings","About")
+    val smsPermissionLauncher=rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()){ granted -> if(granted) runTask { localMessages=withContext(Dispatchers.IO){readSms()};message="Loaded ${localMessages.size} messages from the last seven days." } else message="SMS access was not granted." }
+    val nav=listOf("Home","Control","Messages","Devices","Settings","About")
     val drawerState=rememberDrawerState(DrawerValue.Closed)
     LaunchedEffect(drawer){ if(drawer) drawerState.open() else drawerState.close() }
     MaterialTheme(colorScheme=darkColorScheme(primary=Violet,background=Ink,surface=Panel,onSurface=Color.White)){
@@ -85,7 +90,7 @@ class MainActivity:ComponentActivity(){
                 },
                 bottomBar = {
                     NavigationBar(containerColor = Panel) {
-                        nav.take(4).forEach { item ->
+                        nav.take(5).forEach { item ->
                             NavigationBarItem(
                                 selected = page == item,
                                 onClick = { page = item },
@@ -95,6 +100,7 @@ class MainActivity:ComponentActivity(){
                                             "Home" -> Icons.Default.Home
                                             "Control" -> Icons.Default.Gamepad
                                             "Devices" -> Icons.Default.Devices
+                                            "Messages" -> Icons.Default.Mail
                                             else -> Icons.Default.Settings
                                         },
                                         contentDescription = item
@@ -137,6 +143,22 @@ class MainActivity:ComponentActivity(){
                             OutlinedTextField(smsNumber,{smsNumber=it},label={Text("Phone number")},modifier=Modifier.fillMaxWidth(),singleLine=true)
                             OutlinedTextField(smsBody,{smsBody=it},label={Text("Message")},modifier=Modifier.fillMaxWidth(),minLines=2)
                             Button(enabled=smsNumber.trim().isNotEmpty()&&smsBody.isNotBlank(),onClick={confirmSms=true},modifier=Modifier.fillMaxWidth()){Text("Review SMS")}
+                        }
+                        "Messages"->{
+                            Text("PRIVATE MESSAGES",color=Violet,fontSize=11.sp,letterSpacing=2.sp,fontWeight=FontWeight.Bold)
+                            Text("SMS reader",color=Color.White,fontSize=25.sp,fontWeight=FontWeight.Bold)
+                            Text("Read-only access to SMS stored on this phone, limited to the last seven days and up to 100 newest messages. Nothing is sent or deleted.",color=Muted,fontSize=13.sp)
+                            Button(enabled=!busy,onClick={if(SmsReader.hasPermission(this@MainActivity))runTask{localMessages=withContext(Dispatchers.IO){readSms()};message="Loaded ${localMessages.size} messages."}else smsPermissionLauncher.launch(android.Manifest.permission.READ_SMS)},modifier=Modifier.fillMaxWidth()){Text(if(SmsReader.hasPermission(this@MainActivity))"Refresh local messages" else "Grant SMS access")}
+                            localMessages.forEach { item ->
+                                Card(colors=CardDefaults.cardColors(containerColor=Panel),shape=RoundedCornerShape(16.dp)){
+                                    Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(5.dp)){
+                                        Row(verticalAlignment=Alignment.CenterVertically){Text(item.address.ifBlank{"Unknown sender"},color=Color.White,fontWeight=FontWeight.Bold,modifier=Modifier.weight(1f));Text(if(item.type==android.provider.Telephony.Sms.MESSAGE_TYPE_SENT)"Sent" else "Received",color=Violet,fontSize=10.sp)}
+                                        Text(DateFormat.getDateTimeInstance(DateFormat.MEDIUM,DateFormat.SHORT).format(Date(item.date)),color=Muted,fontSize=10.sp)
+                                        Text(item.body,color=Color.White,fontSize=13.sp)
+                                    }
+                                }
+                            }
+                            if(localMessages.isEmpty())Text("No messages loaded yet. Grant access to view the seven-day window.",color=Muted,fontSize=12.sp)
                         }
                         "Devices"->{
                             Text("DEVICE FLEET",color=Violet,fontSize=11.sp,letterSpacing=2.sp,fontWeight=FontWeight.Bold);Text("Your devices",color=Color.White,fontSize=25.sp,fontWeight=FontWeight.Bold)
