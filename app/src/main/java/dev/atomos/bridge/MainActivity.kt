@@ -60,6 +60,29 @@ private fun BridgeDashboard(store: SecureStore, api: AtomosApi, openAccessibilit
     var message by remember { mutableStateOf("Sign in to register this phone to your account.") }
     var accessibility by remember { mutableStateOf(BridgeState.isAccessibilityConnected()) }
     val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(deviceToken) {
+        val token = deviceToken ?: return@LaunchedEffect
+        status = "Checking device connection…"
+        try {
+            val result = withContext(Dispatchers.IO) { api.call("device_status", device = token) }
+            status = if (result.optBoolean("authenticated")) "Secure connection verified" else "Device needs attention"
+            message = "Cloud verification completed."
+        } catch (e: ApiException) {
+            if (e.status == 401) {
+                store.remove("device_token", "device_id")
+                deviceToken = null
+                deviceId = ""
+                status = "Device registration expired or revoked"
+                message = "Register this phone again to restore its device credential."
+            } else {
+                status = "Temporarily offline"
+                message = e.message ?: "Could not verify the device right now."
+            }
+        } catch (e: Exception) {
+            status = "Temporarily offline"
+            message = e.message ?: "Could not verify the device right now."
+        }
+    }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) accessibility = BridgeState.isAccessibilityConnected()
