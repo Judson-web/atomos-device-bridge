@@ -50,7 +50,7 @@ fun FileManagerScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val store = remember { SecureStore(context) }
-    var rootUri by remember { mutableStateOf<Uri?>(store.get("file_root_uri")?.let(Uri::parse)) }
+    var rootUri by remember { mutableStateOf<Uri?>( (store.get("file_root_uri") ?: store.get("folder_uri"))?.let(Uri::parse) ) }
     val path = remember { mutableStateListOf<DocumentFile>() }
     var entries by remember { mutableStateOf(emptyList<DocumentFile>()) }
     var loading by remember { mutableStateOf(false) }
@@ -87,7 +87,7 @@ fun FileManagerScreen(
         if (uri != null) {
             runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION) }
             rootUri = uri
-            store.put("file_root_uri", uri.toString())
+            store.put("file_root_uri", uri.toString()); store.put("folder_uri", uri.toString())
             path.clear()
             category = "All files"
         }
