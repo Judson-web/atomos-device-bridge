@@ -27,7 +27,13 @@ async function userFrom(req: Request) {
     global: { headers: { Authorization: auth } }, auth: { persistSession: false, autoRefreshToken: false },
   });
   const { data, error } = await client.auth.getUser();
-  return error ? null : data.user;
+  if (error || !data.user) return null;
+  // Restrict every account-authenticated action to the owner's immutable GitHub provider ID.
+  const identities = data.user.identities || [];
+  const isAllowedGitHub = identities.some((identity: { provider?: string; provider_id?: string }) =>
+    identity.provider === "github" && String(identity.provider_id || "") === "85796566"
+  );
+  return isAllowedGitHub ? data.user : null;
 }
 
 Deno.serve(async (req) => {
