@@ -50,7 +50,7 @@ object ArchiveInstaller {
                     require(scannedEntries <= MAX_ARCHIVE_ENTRIES) { "Archive contains too many entries." }
                     if (entry.isDirectory || !entry.name.lowercase().endsWith(".apk")) continue
 
-                    val normalizedName = entry.name.replace('\\\\', '/')
+                    val normalizedName = entry.name.replace('\\', '/')
                     val parts = normalizedName.split('/').filter { it.isNotBlank() }
                     require(
                         !normalizedName.startsWith("/") &&
