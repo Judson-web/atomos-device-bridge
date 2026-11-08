@@ -6,8 +6,9 @@ Atomos is a **local-first Android utility app for a personally managed device**.
 
 - No account, OAuth flow, sign-in gate, device pairing or cloud command channel is used by the Android app.
 - The app does not request SMS, contacts, call-log, accessibility, notification-listener or background remote-control permissions.
-- File access is restricted to directories explicitly granted through Android's Storage Access Framework. Atomos does not silently scan shared storage or protected application directories.
-- The selected storage URI is saved in encrypted app preferences backed by the Android Keystore. Android's persisted URI permission remains the authority for access.
+- On Android 11 and newer, users can optionally grant Android's special **All files access** permission to browse and manage shared internal storage. This requires explicit approval in system Settings and is never granted silently.
+- Without that permission, Atomos uses the Storage Access Framework and only accesses folders the user selects. Removable SD cards and USB storage can be opened through the folder picker when exposed by the device. Android continues to restrict protected app-private and system locations, including parts of `Android/data` and `Android/obb`.
+- Selected Storage Access Framework locations are saved in encrypted app preferences backed by the Android Keystore. Android's persisted URI permission remains the authority for those locations. All-files access is checked against Android system settings whenever the file manager is opened.
 - File contents and archive contents are processed on-device. The only built-in network transfer is the optional speed test described below.
 
 ## Features
@@ -64,6 +65,6 @@ The `supabase/migrations` directory contains historical migrations from an earli
 
 ## Privacy and platform behavior
 
-- The Android manifest requests only internet access, network-state access and permission to request package installation.
+- The Android manifest requests internet access, network-state access, package-install permission and `MANAGE_EXTERNAL_STORAGE`. The latter is optional and only takes effect after the user explicitly approves it in Android Settings.
 - Network activity occurs only for the optional speed test and for opening unsupported file types in an external app chosen by the user.
 - Package installation and external file opening remain subject to Android's own user prompts and permission model.
