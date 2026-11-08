@@ -2,6 +2,10 @@ package dev.atomos.bridge
 
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.Settings
+import java.io.File
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -51,7 +55,17 @@ fun FileManagerScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val store = remember { SecureStore(context) }
-    var rootUri by remember { mutableStateOf<Uri?>( (store.get("file_root_uri") ?: store.get("folder_uri"))?.let(Uri::parse) ) }
+    var allFilesAccess by remember {
+        mutableStateOf(Build.VERSION.SDK_INT < Build.VERSION_CODES.R || Environment.isExternalStorageManager())
+    }
+    var rootUri by remember {
+        mutableStateOf<Uri?>(
+            (store.get("file_root_uri") ?: store.get("folder_uri"))?.let(Uri::parse)
+                ?: if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
+                    Uri.fromFile(Environment.getExternalStorageDirectory())
+                } else null
+        )
+    }
     val path = remember { mutableStateListOf<DocumentFile>() }
     var entries by remember { mutableStateOf(emptyList<DocumentFile>()) }
     var loading by remember { mutableStateOf(false) }
@@ -77,9 +91,36 @@ fun FileManagerScreen(
     var reloadVersion by remember { mutableIntStateOf(0) }
     var deleteTarget by remember { mutableStateOf<DocumentFile?>(null) }
 
-    val current = path.lastOrNull() ?: rootUri?.let { DocumentFile.fromTreeUri(context, it) }
+    val current = path.lastOrNull() ?: rootUri?.let { uri ->
+        if (uri.scheme == "file") uri.path?.let { DocumentFile.fromFile(File(it)) }
+        else DocumentFile.fromTreeUri(context, uri)
+    }
     fun reload() {
         reloadVersion++
+    }
+
+    val allFilesAccessLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        allFilesAccess = Build.VERSION.SDK_INT < Build.VERSION_CODES.R || Environment.isExternalStorageManager()
+        if (allFilesAccess && rootUri?.scheme != "file") {
+            val primaryStorage = Uri.fromFile(Environment.getExternalStorageDirectory())
+            rootUri = primaryStorage
+            store.put("file_root_uri", primaryStorage.toString())
+            store.put("folder_uri", primaryStorage.toString())
+            path.clear()
+            category = "All files"
+        }
+        reload()
+    }
+    fun requestAllFilesAccess() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
+            val intent = Intent(
+                Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                Uri.parse("package:${context.packageName}")
+            )
+            allFilesAccessLauncher.launch(intent)
+        }
     }
     val rootPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
@@ -232,7 +273,13 @@ fun FileManagerScreen(
                 NavigationDrawerItem(label = { Text("Package installer") }, selected = false, onClick = { scope.launch { drawerState.close() }; onNavigate("Installer") }, icon = { Text("⬇") }, modifier = Modifier.padding(horizontal = 12.dp))
                 NavigationDrawerItem(label = { Text("Settings") }, selected = false, onClick = { scope.launch { drawerState.close() }; onNavigate("Settings") }, icon = { Text("⚙") }, modifier = Modifier.padding(horizontal = 12.dp))
                 Spacer(Modifier.height(16.dp))
-                Text("Storage access is limited to folders you grant.", style = MaterialTheme.typography.labelSmall, color = FileMuted, modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp))
+                Text(
+                    if (allFilesAccess) "All-files access is enabled. Android still protects some system and app-private locations."
+                    else "Grant all-files access to browse shared internal storage. Removable storage can also be added with the folder picker.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = FileMuted,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp)
+                )
             }
         }
     ) {
@@ -261,7 +308,22 @@ fun FileManagerScreen(
                                 DropdownMenuItem(text = { Text("Sort: $sortBy") }, onClick = { sortBy = when (sortBy) { "Name" -> "Modified"; "Modified" -> "Size"; else -> "Name" }; menuOpen = false })
                                 DropdownMenuItem(text = { Text(if (showHidden) "Hide hidden files" else "Show hidden files") }, onClick = { showHidden = !showHidden; menuOpen = false })
                                 DropdownMenuItem(text = { Text("Refresh") }, onClick = { menuOpen = false; reload() })
-                                DropdownMenuItem(text = { Text("Choose storage") }, onClick = { menuOpen = false; rootPicker.launch(null) })
+                                DropdownMenuItem(text = { Text("Choose storage / SD card") }, onClick = { menuOpen = false; rootPicker.launch(null) })
+                                if (allFilesAccess && rootUri?.scheme != "file") {
+                                    DropdownMenuItem(text = { Text("Open internal storage") }, onClick = {
+                                        menuOpen = false
+                                        val primaryStorage = Uri.fromFile(Environment.getExternalStorageDirectory())
+                                        rootUri = primaryStorage
+                                        store.put("file_root_uri", primaryStorage.toString())
+                                        store.put("folder_uri", primaryStorage.toString())
+                                        path.clear()
+                                        category = "All files"
+                                        reload()
+                                    })
+                                }
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !allFilesAccess) {
+                                    DropdownMenuItem(text = { Text("Grant all-files access") }, onClick = { menuOpen = false; requestAllFilesAccess() })
+                                }
                             }
                         }
                     },
@@ -279,6 +341,24 @@ fun FileManagerScreen(
             Column(Modifier.fillMaxSize().padding(padding)) {
                 if (searchOpen) {
                     OutlinedTextField(search, { search = it }, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), placeholder = { Text("Search in this folder") }, singleLine = true)
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !allFilesAccess) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                        colors = CardDefaults.cardColors(containerColor = FileSurface)
+                    ) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Unlock shared storage", fontWeight = FontWeight.SemiBold)
+                                Text("Allow Atomos to manage files across shared internal storage. Android will ask you to approve this in Settings.", color = FileMuted, style = MaterialTheme.typography.bodySmall)
+                            }
+                            Button(onClick = { requestAllFilesAccess() }) { Text("Allow") }
+                        }
+                    }
                 }
                 if (rootUri != null) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -300,8 +380,11 @@ fun FileManagerScreen(
                         Text("▤", fontSize = 58.sp, color = FileViolet)
                         Spacer(Modifier.height(16.dp))
                         Text("Your files, in one place.", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                        Text("Choose a folder or storage location to start browsing. Atomos only accesses the location you select.", color = FileMuted, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(vertical = 12.dp))
-                        Button(onClick = { rootPicker.launch(null) }) { Text("Choose storage") }
+                        Text("Grant all-files access for shared internal storage, or choose a folder or removable storage location.", color = FileMuted, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(vertical = 12.dp))
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !allFilesAccess) {
+                            Button(onClick = { requestAllFilesAccess() }) { Text("Allow all storage access") }
+                        }
+                        OutlinedButton(onClick = { rootPicker.launch(null) }) { Text("Choose folder / SD card") }
                     }
                     loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = FileViolet) }
                     filtered.isEmpty() -> Box(Modifier.fillMaxSize().padding(28.dp), contentAlignment = Alignment.Center) {
