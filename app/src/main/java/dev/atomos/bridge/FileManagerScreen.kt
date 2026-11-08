@@ -95,6 +95,10 @@ fun FileManagerScreen(
         if (uri.scheme == "file") uri.path?.let { DocumentFile.fromFile(File(it)) }
         else DocumentFile.fromTreeUri(context, uri)
     }
+    fun reload() {
+        reloadVersion++
+    }
+
     val allFilesAccessLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
@@ -117,9 +121,6 @@ fun FileManagerScreen(
             )
             allFilesAccessLauncher.launch(intent)
         }
-    }
-    fun reload() {
-        reloadVersion++
     }
     val rootPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
