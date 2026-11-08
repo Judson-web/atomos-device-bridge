@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -413,7 +414,7 @@ private fun ImageViewer(file: DocumentFile, bitmap: Bitmap, onBack: () -> Unit) 
                         IconButton(onClick = { rotation += 90f }) {
                             Icon(Icons.Default.RotateRight, contentDescription = "Rotate right", tint = Color.White)
                         }
-                        IconButton(onClick = resetView) {
+                        IconButton(onClick = { resetView() }) {
                             Icon(Icons.Default.RestartAlt, contentDescription = "Reset view", tint = Color.White)
                         }
                     }
