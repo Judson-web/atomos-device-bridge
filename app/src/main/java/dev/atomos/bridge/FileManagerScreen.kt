@@ -567,24 +567,6 @@ private fun fileGlyph(file: DocumentFile): String {
     }
 }
 
-private fun isSafeFileName(value: String): Boolean =
-    value.isNotBlank() &&
-        value != "." &&
-        value != ".." &&
-        value.length <= 255 &&
-        value.none { it == '/' || it == '\\' || it == ':' || Character.isISOControl(it) }
-
-private fun safeArchiveSegment(value: String): String {
-    val cleaned = value
-        .replace('/', '_')
-        .replace('\\', '_')
-        .replace(':', '_')
-        .filterNot { Character.isISOControl(it) }
-        .trim()
-        .take(255)
-    return cleaned.takeUnless { it.isBlank() || it == "." || it == ".." } ?: "unnamed"
-}
-
 private fun uniqueChildName(parent: DocumentFile, desired: String): String {
     if (parent.findFile(desired) == null) return desired
     val dot = desired.lastIndexOf('.')
