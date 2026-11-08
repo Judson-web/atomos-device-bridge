@@ -308,6 +308,18 @@ fun FileManagerScreen(
                                 DropdownMenuItem(text = { Text(if (showHidden) "Hide hidden files" else "Show hidden files") }, onClick = { showHidden = !showHidden; menuOpen = false })
                                 DropdownMenuItem(text = { Text("Refresh") }, onClick = { menuOpen = false; reload() })
                                 DropdownMenuItem(text = { Text("Choose storage / SD card") }, onClick = { menuOpen = false; rootPicker.launch(null) })
+                                if (allFilesAccess && rootUri?.scheme != "file") {
+                                    DropdownMenuItem(text = { Text("Open internal storage") }, onClick = {
+                                        menuOpen = false
+                                        val primaryStorage = Uri.fromFile(Environment.getExternalStorageDirectory())
+                                        rootUri = primaryStorage
+                                        store.put("file_root_uri", primaryStorage.toString())
+                                        store.put("folder_uri", primaryStorage.toString())
+                                        path.clear()
+                                        category = "All files"
+                                        reload()
+                                    })
+                                }
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !allFilesAccess) {
                                     DropdownMenuItem(text = { Text("Grant all-files access") }, onClick = { menuOpen = false; requestAllFilesAccess() })
                                 }
