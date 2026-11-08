@@ -13,7 +13,7 @@ import java.util.UUID
 import java.util.zip.ZipFile
 
 object ArchiveInstaller {
-    data class Prepared(val files: List<File>, val label: String, val packageName: String)
+    data class Prepared(val files: List<File>, val label: String, val packageName: String, val installNames: List<String>)
 
     private const val MAX_SOURCE_BYTES = 1_000_000_000L
     private const val MAX_EXPANDED_APK_BYTES = 1_000_000_000L
@@ -33,7 +33,7 @@ object ArchiveInstaller {
         val ext = source.extension.lowercase()
         if (ext == "apk") {
             return try {
-                Prepared(listOf(source), source.name, packageNameFor(context, source))
+                Prepared(listOf(source), source.name, packageNameFor(context, source), listOf("base.apk"))
             } catch (e: Exception) {
                 source.delete()
                 throw e
@@ -98,19 +98,32 @@ object ArchiveInstaller {
             }
 
             require(apks.isNotEmpty()) { "No APK files were found in this archive." }
-            require(apks.count { it.first.substringAfterLast('/').equals("base.apk", ignoreCase = true) } == 1) {
-                "This split package has no unique base.apk and cannot be installed safely."
+            val baseEntries = apks.filter {
+                it.first.substringAfterLast('/').lowercase() in setOf("base.apk", "base-master.apk")
+            }
+            require(baseEntries.size == 1) {
+                "This split package has no unique base APK and cannot be installed safely."
             }
             val packageNames = apks.map { packageNameFor(context, it.second) }.toSet()
             require(packageNames.size == 1) { "The archive contains APKs from different Android packages." }
-            val ordered = apks.sortedBy { (entryName, _) ->
-                when (entryName.substringAfterLast('/').lowercase()) {
-                    "base.apk" -> 0
-                    else -> if (entryName.substringAfterLast('/').lowercase().startsWith("base-")) 1 else 2
+            val orderedEntries = apks.sortedBy { (entryName, _) ->
+                val name = entryName.substringAfterLast('/').lowercase()
+                when {
+                    name == "base.apk" || name == "base-master.apk" -> 0
+                    name.startsWith("base-") -> 1
+                    else -> 2
                 }
-            }.map { it.second }
+            }
+            val installNames = orderedEntries.map { (entryName, _) ->
+                val name = entryName.substringAfterLast('/')
+                if (name.equals("base.apk", true) || name.equals("base-master.apk", true)) "base.apk" else name
+            }
+            require(installNames.distinct().size == installNames.size) {
+                "The archive contains duplicate APK split filenames."
+            }
+            val ordered = orderedEntries.map { it.second }
             source.delete()
-            return Prepared(ordered, source.name, packageNames.single())
+            return Prepared(ordered, source.name, packageNames.single(), installNames)
         } catch (e: Exception) {
             out.deleteRecursively()
             source.delete()
@@ -120,6 +133,7 @@ object ArchiveInstaller {
 
     suspend fun install(context: Context, prepared: Prepared) {
         require(prepared.files.isNotEmpty()) { "No APK files selected." }
+        require(prepared.files.size == prepared.installNames.size) { "The package split metadata is incomplete." }
         try {
             if (!context.packageManager.canRequestPackageInstalls()) {
                 withContext(Dispatchers.Main.immediate) {
@@ -146,7 +160,7 @@ object ArchiveInstaller {
                     installer.openSession(id).use { session ->
                         prepared.files.forEachIndexed { index, file ->
                             require(file.isFile && file.length() > 0L) { "An APK in the selected package is empty or missing." }
-                            val name = if (index == 0) "base.apk" else "split-${index}.apk"
+                            val name = prepared.installNames[index]
                             file.inputStream().buffered().use { input ->
                                 session.openWrite(name, 0, file.length()).use { output ->
                                     input.copyTo(output, 64 * 1024)
