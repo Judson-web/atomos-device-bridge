@@ -415,7 +415,7 @@ fun FileManagerScreen(
                             Text(if (search.isNotBlank()) "Try another search." else "Create a folder or choose another location.", color = FileMuted)
                         }
                     }
-                    grid -> LazyVerticalGrid(columns = GridCells.Fixed(2), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    grid -> LazyVerticalGrid(columns = GridCells.Adaptive(minSize = 156.dp), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         gridItems(filtered, key = { it.uri.toString() }) { file ->
                             FileGridTile(file, onClick = { if (file.isDirectory) path.add(file) else openFile(file) }, onMenu = { itemMenu = file })
                         }
