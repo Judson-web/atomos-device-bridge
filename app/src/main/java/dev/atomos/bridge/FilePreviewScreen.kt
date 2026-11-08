@@ -54,7 +54,8 @@ import java.io.ByteArrayOutputStream
 import java.util.zip.ZipInputStream
 import kotlin.math.roundToInt
 
-private const val MAX_PREVIEW_BYTES = 32 * 1024 * 1024
+private const val MAX_PREVIEW_BYTES = 16 * 1024 * 1024
+private const val MAX_TEXT_PREVIEW_BYTES = 8 * 1024 * 1024
 private const val MAX_ZIP_PREVIEW_ENTRIES = 10_000
 private const val MAX_ZIP_PREVIEW_EXPANDED_BYTES = 64L * 1024 * 1024
 
@@ -99,12 +100,15 @@ fun FilePreviewScreen(file: DocumentFile, onBack: () -> Unit) {
                 context.contentResolver.openInputStream(file.uri)?.use { input ->
                     val out = ByteArrayOutputStream()
                     val buffer = ByteArray(32 * 1024)
+                    val limit = if (ext in textExtensions) MAX_TEXT_PREVIEW_BYTES else MAX_PREVIEW_BYTES
                     var total = 0
                     while (true) {
                         val count = input.read(buffer)
                         if (count < 0) break
                         total += count
-                        require(total <= MAX_PREVIEW_BYTES) { "Preview limit is 32 MB. Open larger files with another app." }
+                        require(total <= limit) {
+                            "Preview limit is ${limit / (1024 * 1024)} MB. Open larger files with another app."
+                        }
                         out.write(buffer, 0, count)
                     }
                     out.toByteArray()
