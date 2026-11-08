@@ -31,7 +31,14 @@ object ArchiveInstaller {
         }
 
         val ext = source.extension.lowercase()
-        if (ext == "apk") return Prepared(listOf(source), source.name, packageNameFor(context, source))
+        if (ext == "apk") {
+            return try {
+                Prepared(listOf(source), source.name, packageNameFor(context, source))
+            } catch (e: Exception) {
+                source.delete()
+                throw e
+            }
+        }
         if (ext !in setOf("apkm", "apks", "apkx", "xapk", "zip")) {
             source.delete()
             error("Choose an APK, APKM, APKS, APKX or XAPK file.")
