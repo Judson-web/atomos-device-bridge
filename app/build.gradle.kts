@@ -1,13 +1,14 @@
 plugins { id("com.android.application"); id("org.jetbrains.kotlin.android"); id("org.jetbrains.kotlin.plugin.compose") }
 android {
  namespace = "dev.atomos.bridge"
- compileSdk = 35
+ compileSdk = 37
+ buildToolsVersion = "37.0.0"
  defaultConfig {
   applicationId = "dev.atomos.bridge"
   minSdk = 29
-  targetSdk = 35
-  versionCode = 17
-  versionName = "1.0.7"
+  targetSdk = 37
+  versionCode = 18
+  versionName = "1.0.8"
  }
  signingConfigs { create("release") {
   storeFile = file("release-key.jks")
@@ -15,7 +16,6 @@ android {
   keyAlias = System.getenv("ANDROID_SIGNING_KEY_ALIAS")
   keyPassword = System.getenv("ANDROID_SIGNING_KEY_PASSWORD")
  } }
- splits { abi { isEnable = true; reset(); include("arm64-v8a", "armeabi-v7a", "x86_64"); isUniversalApk = true } }
  buildTypes {
   debug { buildConfigField("boolean", "BRIDGE_DEBUG", "false") }
   release { buildConfigField("boolean", "BRIDGE_DEBUG", "false"); signingConfig = signingConfigs.getByName("release"); isMinifyEnabled = false }
@@ -33,8 +33,9 @@ dependencies {
  implementation("androidx.compose.material:material-icons-extended")
  implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
  implementation("androidx.core:core-ktx:1.15.0")
- implementation("androidx.core:core-splashscreen:1.0.1")
+ implementation("androidx.core:core-splashscreen:1.2.0")
  implementation("androidx.documentfile:documentfile:1.0.1")
+ implementation("androidx.exifinterface:exifinterface:1.4.2")
  implementation("androidx.media3:media3-exoplayer:1.5.1")
  implementation("androidx.media3:media3-ui:1.5.1")
  implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
