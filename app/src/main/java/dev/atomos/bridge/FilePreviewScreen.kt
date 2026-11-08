@@ -85,6 +85,10 @@ fun FilePreviewScreen(file: DocumentFile, onBack: () -> Unit) {
     }
     BackHandler { safeBack() }
 
+    DisposableEffect(bitmap) {
+        onDispose { bitmap?.let { if (!it.isRecycled) it.recycle() } }
+    }
+
     LaunchedEffect(file.uri) {
         if (mediaFile) {
             loading = false
@@ -527,7 +531,7 @@ private fun decodePreviewBitmap(context: android.content.Context, uri: Uri): Bit
     if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
 
     // Decode directly from the provider in two passes, avoiding a second full-size byte-array copy.
-    val maxDimension = 3072
+    val maxDimension = 2048
     var sampleSize = 1
     while (maxOf(bounds.outWidth / sampleSize, bounds.outHeight / sampleSize) > maxDimension) {
         sampleSize *= 2
