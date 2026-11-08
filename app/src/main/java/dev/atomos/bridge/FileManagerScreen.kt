@@ -654,10 +654,7 @@ private fun extractZip(context: android.content.Context, archive: DocumentFile, 
                 entryCount++
                 require(entryCount <= 10_000) { "Archive contains too many entries." }
 
-                val normalized = entry.name.replace('\\', '/')
-                require(normalized.length <= 4096 && !normalized.startsWith("/")) { "Unsafe ZIP entry path rejected." }
-                val parts = normalized.split('/').filter { it.isNotEmpty() }
-                require(parts.isNotEmpty() && parts.all { isSafeFileName(it) }) { "Unsafe ZIP entry path rejected." }
+                val parts = normalizeArchiveEntryPath(entry.name)
 
                 var directory = root
                 val directoryParts = parts.dropLast(if (entry.isDirectory) 0 else 1)
