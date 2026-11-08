@@ -333,7 +333,7 @@ private fun AtomosApp(store: SecureStore, activityScope: CoroutineScope) {
                 Text("Local IP: " + ip.ifBlank { "Unavailable" })
                 Text("Android 10 and newer · Local-first utility suite")
                 Text("No account or sign-in required")
-                Text("Atomos 1.0.6")
+                Text("Atomos 1.0.7")
             }
         }
         Card(colors = CardDefaults.cardColors(containerColor = SurfaceDark)) {

@@ -6,8 +6,8 @@ android {
   applicationId = "dev.atomos.bridge"
   minSdk = 29
   targetSdk = 35
-  versionCode = 16
-  versionName = "1.0.6"
+  versionCode = 17
+  versionName = "1.0.7"
  }
  signingConfigs { create("release") {
   storeFile = file("release-key.jks")
