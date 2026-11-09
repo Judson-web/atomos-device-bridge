@@ -72,7 +72,7 @@ fun FilePreviewScreen(file: DocumentFile, onBack: () -> Unit) {
     val name = file.name ?: "File"
     val ext = name.substringAfterLast('.', "").lowercase()
     val textExtensions = setOf("txt", "md", "log", "json", "xml", "csv", "kt", "java", "js", "ts", "css", "yaml", "yml", "properties", "gradle", "sh", "py")
-    val imageExtensions = setOf("jpg", "jpeg", "jpe", "png", "webp", "gif", "bmp", "wbmp", "heic", "heif", "avif", "tif", "tiff", "dng")
+    val imageExtensions = setOf("jpg", "jpeg", "jpe", "png", "webp", "gif", "bmp", "wbmp", "heic", "heif", "avif", "tif", "tiff", "dng", "svg")
     // Trust the provider MIME type as well as the filename. SAF providers often use
     // vendor-specific extensions or omit a conventional extension entirely.
     val isImageFile = file.type?.substringBefore(';')?.trim()?.startsWith("image/", ignoreCase = true) == true ||
@@ -111,8 +111,12 @@ fun FilePreviewScreen(file: DocumentFile, onBack: () -> Unit) {
         }
         try {
             if (isImageFile) {
-                val isGif = ext == "gif" || file.type?.substringBefore(';')?.equals("image/gif", ignoreCase = true) == true
-                if (isGif && android.os.Build.VERSION.SDK_INT >= 28) {
+                val isSvg = ext == "svg" || file.type?.substringBefore(';')?.equals("image/svg+xml", ignoreCase = true) == true
+                val isAnimated = ext in setOf("gif", "webp") || file.type?.substringBefore(';')?.lowercase() in setOf("image/gif", "image/webp")
+                if (isSvg) {
+                    bitmap = withContext(Dispatchers.IO) { decodeSvgBitmap(context, file.uri) }
+                    if (bitmap == null) error("This SVG could not be rendered.")
+                } else if (isAnimated && android.os.Build.VERSION.SDK_INT >= 28) {
                     animatedDrawable = withContext(Dispatchers.IO) { decodeAnimatedImage(context, file.uri) }
                     if (animatedDrawable == null) error("This animated image could not be decoded.")
                 } else {
@@ -566,6 +570,40 @@ private fun ImageViewer(file: DocumentFile, bitmap: Bitmap, onBack: () -> Unit) 
             )
         }
     }
+}
+
+private const val MAX_SVG_SOURCE_BYTES = 16L * 1024L * 1024L
+private const val MAX_SVG_DIMENSION = 8192
+
+private fun decodeSvgBitmap(context: android.content.Context, uri: Uri): Bitmap? {
+    val bytes = context.contentResolver.openInputStream(uri)?.use { input ->
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(16 * 1024)
+        var total = 0L
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            total += count
+            require(total <= MAX_SVG_SOURCE_BYTES) { "SVG source exceeds the 16 MB safety limit." }
+            output.write(buffer, 0, count)
+        }
+        output.toByteArray()
+    } ?: error("Cannot read SVG file.")
+    val svg = com.caverock.androidsvg.SVG.getFromString(bytes.toString(Charsets.UTF_8))
+    val viewBox = svg.documentViewBox
+    val width = svg.documentWidth.takeIf { it.isFinite() && it > 0f } ?: viewBox?.width()?.takeIf { it.isFinite() && it > 0f } ?: 1024f
+    val height = svg.documentHeight.takeIf { it.isFinite() && it > 0f } ?: viewBox?.height()?.takeIf { it.isFinite() && it > 0f } ?: 1024f
+    val memoryClassMb = (context.getSystemService(android.content.Context.ACTIVITY_SERVICE) as ActivityManager).memoryClass
+    val maxPixels = (memoryClassMb.toLong() * 1024L * 1024L / 32L).coerceIn(4L * 1024L * 1024L, 16L * 1024L * 1024L)
+    val scale = minOf(1.0, kotlin.math.sqrt(maxPixels.toDouble() / (width.toDouble() * height.toDouble())))
+    val outWidth = (width * scale).roundToInt().coerceIn(1, MAX_SVG_DIMENSION)
+    val outHeight = (height * scale).roundToInt().coerceIn(1, MAX_SVG_DIMENSION)
+    val bitmap = Bitmap.createBitmap(outWidth, outHeight, Bitmap.Config.ARGB_8888)
+    try {
+        val canvas = android.graphics.Canvas(bitmap)
+        svg.renderToCanvas(canvas, android.graphics.RectF(0f, 0f, outWidth.toFloat(), outHeight.toFloat()))
+        bitmap
+    } catch (error: Exception) { bitmap.recycle(); throw error }
 }
 
 private fun decodeAnimatedImage(context: android.content.Context, uri: Uri): Drawable? {
