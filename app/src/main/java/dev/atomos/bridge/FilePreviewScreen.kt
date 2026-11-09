@@ -599,11 +599,14 @@ private fun decodeSvgBitmap(context: android.content.Context, uri: Uri): Bitmap?
     val outWidth = (width * scale).roundToInt().coerceIn(1, MAX_SVG_DIMENSION)
     val outHeight = (height * scale).roundToInt().coerceIn(1, MAX_SVG_DIMENSION)
     val bitmap = Bitmap.createBitmap(outWidth, outHeight, Bitmap.Config.ARGB_8888)
-    try {
+    return try {
         val canvas = android.graphics.Canvas(bitmap)
         svg.renderToCanvas(canvas, android.graphics.RectF(0f, 0f, outWidth.toFloat(), outHeight.toFloat()))
         bitmap
-    } catch (error: Exception) { bitmap.recycle(); throw error }
+    } catch (error: Exception) {
+        bitmap.recycle()
+        throw error
+    }
 }
 
 private fun decodeAnimatedImage(context: android.content.Context, uri: Uri): Drawable? {
