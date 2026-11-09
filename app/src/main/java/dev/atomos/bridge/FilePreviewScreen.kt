@@ -517,6 +517,30 @@ private fun ImageViewer(file: DocumentFile, bitmap: Bitmap, onBack: () -> Unit) 
 }
 
 private fun decodePreviewBitmap(context: android.content.Context, uri: Uri): Bitmap? {
+    // ImageDecoder supports modern HEIF/HEIC and AVIF codecs on Android versions that
+    // provide them. BitmapFactory alone is not a reliable decoder for these formats.
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+        runCatching {
+            val source = android.graphics.ImageDecoder.createSource(context.contentResolver, uri)
+            return android.graphics.ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+                val width = info.size.width
+                val height = info.size.height
+                require(width > 0 && height > 0) { "Invalid image dimensions." }
+                val scale = minOf(1f, 2048f / maxOf(width, height).toFloat())
+                if (scale < 1f) {
+                    decoder.setTargetSize(
+                        (width * scale).roundToInt().coerceAtLeast(1),
+                        (height * scale).roundToInt().coerceAtLeast(1)
+                    )
+                }
+                decoder.allocator = android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE
+                decoder.isMutableRequired = false
+            }
+        }.onFailure { error ->
+            android.util.Log.w("AtomosImage", "ImageDecoder failed for $uri; trying BitmapFactory", error)
+        }
+    }
+
     val orientation = runCatching {
         context.contentResolver.openInputStream(uri)?.use { stream ->
             ExifInterface(stream).getAttributeInt(
