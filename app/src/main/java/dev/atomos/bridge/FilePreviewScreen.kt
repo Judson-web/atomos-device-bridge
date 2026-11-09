@@ -584,10 +584,10 @@ private fun clampImageTranslation(
     val width = bitmap.width * fitScale * zoom
     val height = bitmap.height * fitScale * zoom
     val radians = Math.toRadians(rotation.toDouble())
-    val rotatedWidth = kotlin.math.abs(width * kotlin.math.cos(radians)) +
-        kotlin.math.abs(height * kotlin.math.sin(radians))
-    val rotatedHeight = kotlin.math.abs(width * kotlin.math.sin(radians)) +
-        kotlin.math.abs(height * kotlin.math.cos(radians))
+    val cosine = kotlin.math.abs(kotlin.math.cos(radians)).toFloat()
+    val sine = kotlin.math.abs(kotlin.math.sin(radians)).toFloat()
+    val rotatedWidth = kotlin.math.abs(width * cosine) + kotlin.math.abs(height * sine)
+    val rotatedHeight = kotlin.math.abs(width * sine) + kotlin.math.abs(height * cosine)
     val maxX = ((rotatedWidth - viewport.width) / 2f).coerceAtLeast(0f)
     val maxY = ((rotatedHeight - viewport.height) / 2f).coerceAtLeast(0f)
     return Offset(x.coerceIn(-maxX, maxX), y.coerceIn(-maxY, maxY))
