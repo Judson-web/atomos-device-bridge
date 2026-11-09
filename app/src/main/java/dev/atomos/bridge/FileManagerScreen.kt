@@ -244,7 +244,7 @@ fun FileManagerScreen(
         if (ext in setOf("apk", "apkm", "apks", "apkx", "xapk")) {
             onInstallPackage(file)
         } else if (file.type?.substringBefore(';')?.trim()?.startsWith("image/", ignoreCase = true) == true ||
-            ext in setOf("zip","txt","md","log","json","xml","csv","kt","java","js","ts","css","html","htm","yaml","yml","properties","gradle","sh","py","jpg","jpeg","jpe","png","webp","gif","bmp","wbmp","heic","heif","avif","tif","tiff","dng","mp3","m4a","aac","ogg","wav","flac","opus","mp4","mkv","mov","webm","3gp","m4v")) {
+            ext in setOf("zip","txt","md","log","json","xml","csv","kt","java","js","ts","css","html","htm","yaml","yml","properties","gradle","sh","py","jpg","jpeg","jpe","png","webp","gif","bmp","wbmp","heic","heif","avif","tif","tiff","dng","svg","mp3","m4a","aac","ogg","wav","flac","opus","mp4","mkv","mov","webm","3gp","m4v")) {
             previewFile = file
         } else {
             runCatching {
