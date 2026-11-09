@@ -3,6 +3,10 @@ package dev.atomos.bridge
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.drawable.AnimatedImageDrawable
+import android.graphics.drawable.Drawable
+import android.widget.ImageView
+import android.app.ActivityManager
 import android.graphics.Matrix
 import android.net.Uri
 import android.webkit.WebSettings
@@ -84,12 +88,17 @@ fun FilePreviewScreen(file: DocumentFile, onBack: () -> Unit) {
     var dirty by remember(file.uri) { mutableStateOf(false) }
     var saving by remember(file.uri) { mutableStateOf(false) }
     var bitmap by remember(file.uri) { mutableStateOf<Bitmap?>(null) }
+    var animatedDrawable by remember(file.uri) { mutableStateOf<Drawable?>(null) }
     var zipEntries by remember(file.uri) { mutableStateOf<List<Pair<String, Long>>>(emptyList()) }
     var discardDialogVisible by remember(file.uri) { mutableStateOf(false) }
     val safeBack: () -> Unit = {
         if (dirty) discardDialogVisible = true else onBack()
     }
     BackHandler { safeBack() }
+
+    DisposableEffect(animatedDrawable) {
+        onDispose { (animatedDrawable as? AnimatedImageDrawable)?.stop() }
+    }
 
     DisposableEffect(bitmap) {
         onDispose { bitmap?.let { if (!it.isRecycled) it.recycle() } }
@@ -102,8 +111,14 @@ fun FilePreviewScreen(file: DocumentFile, onBack: () -> Unit) {
         }
         try {
             if (isImageFile) {
-                bitmap = withContext(Dispatchers.IO) { decodePreviewBitmap(context, file.uri) }
-                if (bitmap == null) error("This image format could not be decoded.")
+                val isGif = ext == "gif" || file.type?.substringBefore(';')?.equals("image/gif", ignoreCase = true) == true
+                if (isGif && android.os.Build.VERSION.SDK_INT >= 28) {
+                    animatedDrawable = withContext(Dispatchers.IO) { decodeAnimatedImage(context, file.uri) }
+                    if (animatedDrawable == null) error("This animated image could not be decoded.")
+                } else {
+                    bitmap = withContext(Dispatchers.IO) { decodePreviewBitmap(context, file.uri) }
+                    if (bitmap == null) error("This image format could not be decoded.")
+                }
                 return@LaunchedEffect
             }
             val data = withContext(Dispatchers.IO) {
@@ -172,6 +187,7 @@ fun FilePreviewScreen(file: DocumentFile, onBack: () -> Unit) {
             previewError != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(previewError ?: "Unable to open image", color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(24.dp))
             }
+            animatedDrawable != null -> AnimatedImageViewer(file = file, drawable = animatedDrawable!!, onBack = safeBack)
             bitmap != null -> ImageViewer(
                 file = file,
                 bitmap = bitmap!!,
@@ -552,9 +568,69 @@ private fun ImageViewer(file: DocumentFile, bitmap: Bitmap, onBack: () -> Unit) 
     }
 }
 
+private fun decodeAnimatedImage(context: android.content.Context, uri: Uri): Drawable? {
+    if (android.os.Build.VERSION.SDK_INT < 28) return null
+    val source = android.graphics.ImageDecoder.createSource(context.contentResolver, uri)
+    return android.graphics.ImageDecoder.decodeDrawable(source) { decoder, info, _ ->
+        val width = info.size.width
+        val height = info.size.height
+        require(width > 0 && height > 0) { "Invalid animated image dimensions." }
+        val memoryClassMb = (context.getSystemService(android.content.Context.ACTIVITY_SERVICE) as ActivityManager).memoryClass
+        val maxPixels = (memoryClassMb.toLong() * 1024L * 1024L / 32L).coerceIn(4L * 1024L * 1024L, 16L * 1024L * 1024L)
+        val scale = minOf(1.0, kotlin.math.sqrt(maxPixels.toDouble() / (width.toLong() * height.toLong())))
+        if (scale < 1.0) decoder.setTargetSize((width * scale).roundToInt().coerceAtLeast(1), (height * scale).roundToInt().coerceAtLeast(1))
+        decoder.allocator = android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE
+    }
+}
+
+@Composable
+private fun AnimatedImageViewer(file: DocumentFile, drawable: Drawable, onBack: () -> Unit) {
+    val context = LocalContext.current
+    var menuExpanded by remember(file.uri) { mutableStateOf(false) }
+    var metadataVisible by remember(file.uri) { mutableStateOf(false) }
+    DisposableEffect(drawable) {
+        (drawable as? AnimatedImageDrawable)?.start()
+        onDispose { (drawable as? AnimatedImageDrawable)?.stop() }
+    }
+    Box(Modifier.fillMaxSize()) {
+        AndroidView(
+            factory = { ImageView(it).apply { scaleType = ImageView.ScaleType.FIT_CENTER; setImageDrawable(drawable) } },
+            update = { if (it.drawable !== drawable) it.setImageDrawable(drawable) },
+            modifier = Modifier.fillMaxSize()
+        )
+        Row(Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Surface(color = Color(0xCC101116), shape = MaterialTheme.shapes.extraLarge) {
+                IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Back", tint = Color.White) }
+            }
+            Text(file.name ?: "Animation", Modifier.weight(1f).padding(horizontal = 12.dp), color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Surface(color = Color(0xCC101116), shape = MaterialTheme.shapes.extraLarge) {
+                Box {
+                    IconButton(onClick = { menuExpanded = true }) { Icon(Icons.Default.MoreVert, "Image options", tint = Color.White) }
+                    DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                        DropdownMenuItem(text = { Text("View metadata") }, onClick = { menuExpanded = false; metadataVisible = true })
+                        DropdownMenuItem(text = { Text("Share image") }, onClick = {
+                            menuExpanded = false
+                            val intent = Intent(Intent.ACTION_SEND).apply {
+                                type = file.type ?: "image/gif"
+                                putExtra(Intent.EXTRA_STREAM, file.uri)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            runCatching { context.startActivity(Intent.createChooser(intent, "Share animation")) }
+                        })
+                    }
+                }
+            }
+        }
+        if (metadataVisible) AlertDialog(
+            onDismissRequest = { metadataVisible = false },
+            title = { Text("Image metadata") },
+            text = { Column { Text("File: ${file.name}"); Text("Dimensions: ${drawable.intrinsicWidth} × ${drawable.intrinsicHeight} px"); Text("Size: ${android.text.format.Formatter.formatFileSize(context, file.length())}"); Text("Animation: ${if (drawable is AnimatedImageDrawable) "Animated" else "Static"}") } },
+            confirmButton = { TextButton(onClick = { metadataVisible = false }) { Text("Close") } }
+        )
+    }
+}
+
 private fun decodePreviewBitmap(context: android.content.Context, uri: Uri): Bitmap? {
-    // ImageDecoder supports modern HEIF/HEIC and AVIF codecs on Android versions that
-    // provide them. BitmapFactory alone is not a reliable decoder for these formats.
     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
         runCatching {
             val source = android.graphics.ImageDecoder.createSource(context.contentResolver, uri)
@@ -562,46 +638,31 @@ private fun decodePreviewBitmap(context: android.content.Context, uri: Uri): Bit
                 val width = info.size.width
                 val height = info.size.height
                 require(width > 0 && height > 0) { "Invalid image dimensions." }
-                val scale = minOf(1f, 2048f / maxOf(width, height).toFloat())
-                if (scale < 1f) {
-                    decoder.setTargetSize(
-                        (width * scale).roundToInt().coerceAtLeast(1),
-                        (height * scale).roundToInt().coerceAtLeast(1)
-                    )
-                }
+                val memoryClassMb = (context.getSystemService(android.content.Context.ACTIVITY_SERVICE) as ActivityManager).memoryClass
+                // Adapt preview resolution to heap size and cap decoded bitmap memory.
+                val maxPixels = (memoryClassMb.toLong() * 1024L * 1024L / 32L).coerceIn(4L * 1024L * 1024L, 16L * 1024L * 1024L)
+                val scale = minOf(1.0, kotlin.math.sqrt(maxPixels.toDouble() / (width.toLong() * height.toLong())))
+                if (scale < 1.0) decoder.setTargetSize((width * scale).roundToInt().coerceAtLeast(1), (height * scale).roundToInt().coerceAtLeast(1))
                 decoder.allocator = android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE
                 decoder.isMutableRequired = false
             }
-        }.onFailure { error ->
-            android.util.Log.w("AtomosImage", "ImageDecoder failed for $uri; trying BitmapFactory", error)
-        }
+        }.onFailure { android.util.Log.w("AtomosImage", "ImageDecoder failed for $uri; trying BitmapFactory", it) }
     }
-
     val orientation = runCatching {
-        context.contentResolver.openInputStream(uri)?.use { stream ->
-            ExifInterface(stream).getAttributeInt(
-                ExifInterface.TAG_ORIENTATION,
-                ExifInterface.ORIENTATION_NORMAL
-            )
-        } ?: ExifInterface.ORIENTATION_NORMAL
+        context.contentResolver.openInputStream(uri)?.use { ExifInterface(it).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL) }
+            ?: ExifInterface.ORIENTATION_NORMAL
     }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
         ?: error("Cannot read image.")
     if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-
-    // Decode directly from the provider in two passes, avoiding a second full-size byte-array copy.
-    val maxDimension = 2048
-    var sampleSize = 1
-    while (maxOf(bounds.outWidth / sampleSize, bounds.outHeight / sampleSize) > maxDimension) {
-        sampleSize *= 2
-    }
-    val options = BitmapFactory.Options().apply {
-        inSampleSize = sampleSize
-        inPreferredConfig = Bitmap.Config.ARGB_8888
-    }
-    val decoded = context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
-        ?: return null
+    val memoryClassMb = (context.getSystemService(android.content.Context.ACTIVITY_SERVICE) as ActivityManager).memoryClass
+    val maxPixels = (memoryClassMb.toLong() * 1024L * 1024L / 32L).coerceIn(4L * 1024L * 1024L, 16L * 1024L * 1024L)
+    val scale = kotlin.math.sqrt(maxPixels.toDouble() / (bounds.outWidth.toLong() * bounds.outHeight.toLong())).coerceAtMost(1.0)
+    val desiredSample = (1.0 / scale).toInt().coerceAtLeast(1)
+    val sampleSize = Integer.highestOneBit(desiredSample)
+    val options = BitmapFactory.Options().apply { inSampleSize = sampleSize; inPreferredConfig = Bitmap.Config.ARGB_8888 }
+    val decoded = context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) } ?: return null
     return orientBitmap(decoded, orientation)
 }
 
