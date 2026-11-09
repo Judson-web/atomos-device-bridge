@@ -66,7 +66,11 @@ fun FilePreviewScreen(file: DocumentFile, onBack: () -> Unit) {
     val name = file.name ?: "File"
     val ext = name.substringAfterLast('.', "").lowercase()
     val textExtensions = setOf("txt", "md", "log", "json", "xml", "csv", "kt", "java", "js", "ts", "css", "yaml", "yml", "properties", "gradle", "sh", "py")
-    val imageExtensions = setOf("jpg", "jpeg", "png", "webp", "gif", "bmp", "heic", "avif")
+    val imageExtensions = setOf("jpg", "jpeg", "jpe", "png", "webp", "gif", "bmp", "wbmp", "heic", "heif", "avif", "tif", "tiff", "dng")
+    // Trust the provider MIME type as well as the filename. SAF providers often use
+    // vendor-specific extensions or omit a conventional extension entirely.
+    val isImageFile = file.type?.substringBefore(';')?.trim()?.startsWith("image/", ignoreCase = true) == true ||
+        ext in imageExtensions
     val audioExtensions = setOf("mp3", "m4a", "aac", "ogg", "wav", "flac", "opus")
     val videoExtensions = setOf("mp4", "mkv", "mov", "webm", "3gp", "m4v")
     val mediaFile = ext in audioExtensions || ext in videoExtensions
@@ -95,7 +99,7 @@ fun FilePreviewScreen(file: DocumentFile, onBack: () -> Unit) {
             return@LaunchedEffect
         }
         try {
-            if (ext in imageExtensions) {
+            if (isImageFile) {
                 bitmap = withContext(Dispatchers.IO) { decodePreviewBitmap(context, file.uri) }
                 if (bitmap == null) error("This image format could not be decoded.")
                 return@LaunchedEffect
@@ -156,11 +160,11 @@ fun FilePreviewScreen(file: DocumentFile, onBack: () -> Unit) {
         ext in setOf("html", "htm") -> "HTML viewer · offline"
         ext in audioExtensions -> "Music player"
         ext in videoExtensions -> "Video player"
-        ext in imageExtensions -> "Image viewer"
+        isImageFile -> "Image viewer"
         else -> "Text editor"
     }
 
-    if (ext in imageExtensions) {
+    if (isImageFile) {
         when {
             loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             previewError != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
