@@ -35,6 +35,7 @@ dependencies {
  implementation("androidx.core:core-splashscreen:1.2.0")
  implementation("androidx.documentfile:documentfile:1.0.1")
  implementation("androidx.exifinterface:exifinterface:1.4.2")
+ implementation("com.caverock:androidsvg-aar:1.4")
  implementation("androidx.media3:media3-exoplayer:1.5.1")
  implementation("androidx.media3:media3-ui:1.5.1")
  implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
