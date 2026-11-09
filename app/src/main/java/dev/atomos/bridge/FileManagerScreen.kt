@@ -224,7 +224,7 @@ fun FileManagerScreen(
             val ext = name.substringAfterLast('.', "").lowercase()
             val mime = file.type.orEmpty()
             val categoryMatch = file.isDirectory || when (category) {
-                "Images" -> mime.startsWith("image/") || ext in setOf("jpg", "jpeg", "png", "webp", "gif", "heic", "svg")
+                "Images" -> mime.startsWith("image/") || ext in setOf("jpg", "jpeg", "jpe", "png", "webp", "gif", "bmp", "wbmp", "heic", "heif", "avif", "tif", "tiff", "dng", "svg")
                 "Videos" -> mime.startsWith("video/") || ext in setOf("mp4", "mkv", "mov", "webm", "3gp")
                 "Audio" -> mime.startsWith("audio/") || ext in setOf("mp3", "m4a", "aac", "ogg", "wav", "flac")
                 "Documents" -> ext in setOf("pdf", "doc", "docx", "txt", "rtf", "xls", "xlsx", "ppt", "pptx", "csv")
@@ -243,7 +243,8 @@ fun FileManagerScreen(
         val ext = file.name?.substringAfterLast('.', "")?.lowercase().orEmpty()
         if (ext in setOf("apk", "apkm", "apks", "apkx", "xapk")) {
             onInstallPackage(file)
-        } else if (ext == "zip" || ext in setOf("txt","md","log","json","xml","csv","kt","java","js","ts","css","html","htm","yaml","yml","properties","gradle","sh","py","jpg","jpeg","png","webp","gif","bmp","heic","avif","mp3","m4a","aac","ogg","wav","flac","opus","mp4","mkv","mov","webm","3gp","m4v")) {
+        } else if (file.type?.substringBefore(';')?.trim()?.startsWith("image/", ignoreCase = true) == true ||
+            ext in setOf("zip","txt","md","log","json","xml","csv","kt","java","js","ts","css","html","htm","yaml","yml","properties","gradle","sh","py","jpg","jpeg","jpe","png","webp","gif","bmp","wbmp","heic","heif","avif","tif","tiff","dng","mp3","m4a","aac","ogg","wav","flac","opus","mp4","mkv","mov","webm","3gp","m4v")) {
             previewFile = file
         } else {
             runCatching {
