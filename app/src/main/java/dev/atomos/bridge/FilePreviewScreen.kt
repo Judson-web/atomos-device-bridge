@@ -3,10 +3,12 @@ package dev.atomos.bridge
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import android.net.Uri
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
@@ -36,6 +38,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.geometry.Offset
+import androidx.exifinterface.media.ExifInterface
 import androidx.compose.ui.unit.sp
 import androidx.documentfile.provider.DocumentFile
 import androidx.media3.common.MediaItem
@@ -48,7 +54,8 @@ import java.io.ByteArrayOutputStream
 import java.util.zip.ZipInputStream
 import kotlin.math.roundToInt
 
-private const val MAX_PREVIEW_BYTES = 32 * 1024 * 1024
+private const val MAX_PREVIEW_BYTES = 16 * 1024 * 1024
+private const val MAX_TEXT_PREVIEW_BYTES = 8 * 1024 * 1024
 private const val MAX_ZIP_PREVIEW_ENTRIES = 10_000
 private const val MAX_ZIP_PREVIEW_EXPANDED_BYTES = 64L * 1024 * 1024
 
@@ -72,6 +79,15 @@ fun FilePreviewScreen(file: DocumentFile, onBack: () -> Unit) {
     var saving by remember(file.uri) { mutableStateOf(false) }
     var bitmap by remember(file.uri) { mutableStateOf<Bitmap?>(null) }
     var zipEntries by remember(file.uri) { mutableStateOf<List<Pair<String, Long>>>(emptyList()) }
+    var discardDialogVisible by remember(file.uri) { mutableStateOf(false) }
+    val safeBack: () -> Unit = {
+        if (dirty) discardDialogVisible = true else onBack()
+    }
+    BackHandler { safeBack() }
+
+    DisposableEffect(bitmap) {
+        onDispose { bitmap?.let { if (!it.isRecycled) it.recycle() } }
+    }
 
     LaunchedEffect(file.uri) {
         if (mediaFile) {
@@ -88,12 +104,15 @@ fun FilePreviewScreen(file: DocumentFile, onBack: () -> Unit) {
                 context.contentResolver.openInputStream(file.uri)?.use { input ->
                     val out = ByteArrayOutputStream()
                     val buffer = ByteArray(32 * 1024)
+                    val limit = if (ext in textExtensions) MAX_TEXT_PREVIEW_BYTES else MAX_PREVIEW_BYTES
                     var total = 0
                     while (true) {
                         val count = input.read(buffer)
                         if (count < 0) break
                         total += count
-                        require(total <= MAX_PREVIEW_BYTES) { "Preview limit is 32 MB. Open larger files with another app." }
+                        require(total <= limit) {
+                            "Preview limit is ${limit / (1024 * 1024)} MB. Open larger files with another app."
+                        }
                         out.write(buffer, 0, count)
                     }
                     out.toByteArray()
@@ -150,7 +169,7 @@ fun FilePreviewScreen(file: DocumentFile, onBack: () -> Unit) {
             bitmap != null -> ImageViewer(
                 file = file,
                 bitmap = bitmap!!,
-                onBack = onBack
+                onBack = safeBack
             )
             else -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("This image format could not be decoded.") }
         }
@@ -167,7 +186,7 @@ fun FilePreviewScreen(file: DocumentFile, onBack: () -> Unit) {
                     }
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = safeBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                     }
                 },
@@ -219,36 +238,15 @@ fun FilePreviewScreen(file: DocumentFile, onBack: () -> Unit) {
                     )
                 }
                 ext == "html" || ext == "htm" -> {
-                    val html = bytes?.toString(Charsets.UTF_8).orEmpty()
-                    AndroidView(
-                        factory = { ctx ->
-                            WebView(ctx).apply {
-                                settings.javaScriptEnabled = false
-                                settings.javaScriptCanOpenWindowsAutomatically = false
-                                settings.domStorageEnabled = false
-                                settings.allowFileAccess = false
-                                settings.allowContentAccess = false
-                                settings.blockNetworkLoads = true
-                                settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-                                settings.setSupportMultipleWindows(false)
-                                webViewClient = object : WebViewClient() {
-                                    override fun shouldOverrideUrlLoading(
-                                        view: WebView,
-                                        request: android.webkit.WebResourceRequest
-                                    ): Boolean = true
-                                }
-                                loadDataWithBaseURL(null, html, "text/html", "UTF-8", null)
-                            }
-                        },
-                        modifier = Modifier.fillMaxSize()
-                    )
+                    HtmlFilePreview(bytes?.toString(Charsets.UTF_8).orEmpty())
                 }
                 ext in textExtensions -> Column(Modifier.fillMaxSize().padding(12.dp)) {
                     Text("Editing locally · UTF-8", style = MaterialTheme.typography.labelSmall)
                     OutlinedTextField(
                         value = editorText,
                         onValueChange = { editorText = it; dirty = true },
-                        modifier = Modifier.weight(1f).fillMaxWidth()
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        enabled = !saving
                     )
                     if (dirty) {
                         Button(
@@ -283,6 +281,56 @@ fun FilePreviewScreen(file: DocumentFile, onBack: () -> Unit) {
             }
         }
     }
+
+    if (discardDialogVisible) {
+        AlertDialog(
+            onDismissRequest = { discardDialogVisible = false },
+            title = { Text("Discard unsaved changes?") },
+            text = { Text("Your edits to this file have not been saved.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    discardDialogVisible = false
+                    dirty = false
+                    onBack()
+                }) { Text("Discard") }
+            },
+            dismissButton = {
+                TextButton(onClick = { discardDialogVisible = false }) { Text("Keep editing") }
+            }
+        )
+    }
+}
+
+@Composable
+private fun HtmlFilePreview(html: String) {
+    val context = LocalContext.current
+    val webView = remember(html) {
+        WebView(context).apply {
+            settings.javaScriptEnabled = false
+            settings.javaScriptCanOpenWindowsAutomatically = false
+            settings.domStorageEnabled = false
+            settings.allowFileAccess = false
+            settings.allowContentAccess = false
+            settings.blockNetworkLoads = true
+            settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            settings.setSupportMultipleWindows(false)
+            webViewClient = object : WebViewClient() {
+                override fun shouldOverrideUrlLoading(
+                    view: WebView,
+                    request: android.webkit.WebResourceRequest
+                ): Boolean = true
+            }
+            loadDataWithBaseURL(null, html, "text/html", "UTF-8", null)
+        }
+    }
+    DisposableEffect(webView) {
+        onDispose {
+            webView.stopLoading()
+            webView.loadUrl("about:blank")
+            webView.destroy()
+        }
+    }
+    AndroidView(factory = { webView }, modifier = Modifier.fillMaxSize())
 }
 
 @Composable
@@ -294,12 +342,32 @@ private fun ImageViewer(file: DocumentFile, bitmap: Bitmap, onBack: () -> Unit) 
     var rotation by remember(file.uri) { mutableFloatStateOf(0f) }
     var controlsVisible by remember(file.uri) { mutableStateOf(true) }
     var detailsVisible by remember(file.uri) { mutableStateOf(false) }
+    var viewportSize by remember(file.uri) { mutableStateOf(IntSize.Zero) }
+
+    fun applyZoom(value: Float) {
+        zoom = value.coerceIn(1f, 8f)
+        val bounded = clampImageTranslation(bitmap, viewportSize, zoom, rotation, offsetX, offsetY)
+        offsetX = bounded.x
+        offsetY = bounded.y
+    }
+    fun applyRotation(value: Float) {
+        rotation = value
+        val bounded = clampImageTranslation(bitmap, viewportSize, zoom, rotation, offsetX, offsetY)
+        offsetX = bounded.x
+        offsetY = bounded.y
+    }
 
     val transformState = rememberTransformableState { zoomChange, panChange, rotationChange ->
-        zoom = (zoom * zoomChange).coerceIn(1f, 8f)
-        offsetX += panChange.x
-        offsetY += panChange.y
-        rotation += rotationChange
+        val nextZoom = (zoom * zoomChange).coerceIn(1f, 8f)
+        val nextRotation = rotation + rotationChange
+        zoom = nextZoom
+        rotation = nextRotation
+        val bounded = clampImageTranslation(
+            bitmap, viewportSize, nextZoom, nextRotation,
+            offsetX + panChange.x, offsetY + panChange.y
+        )
+        offsetX = bounded.x
+        offsetY = bounded.y
     }
 
     fun resetView() {
@@ -327,6 +395,7 @@ private fun ImageViewer(file: DocumentFile, bitmap: Bitmap, onBack: () -> Unit) 
             contentDescription = file.name ?: "Image",
             modifier = Modifier
                 .fillMaxSize()
+                .onSizeChanged { viewportSize = it }
                 .pointerInput(file.uri) {
                     detectTapGestures(
                         onTap = { controlsVisible = !controlsVisible },
@@ -334,7 +403,7 @@ private fun ImageViewer(file: DocumentFile, bitmap: Bitmap, onBack: () -> Unit) 
                             if (zoom > 1f) {
                                 resetView()
                             } else {
-                                zoom = 2.5f
+                                applyZoom(2.5f)
                                 offsetX = 0f
                                 offsetY = 0f
                             }
@@ -389,7 +458,7 @@ private fun ImageViewer(file: DocumentFile, bitmap: Bitmap, onBack: () -> Unit) 
                         Text("ZOOM", color = Color.LightGray, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
                         Slider(
                             value = zoom,
-                            onValueChange = { zoom = it },
+                            onValueChange = { applyZoom(it) },
                             valueRange = 1f..8f,
                             modifier = Modifier.weight(1f).padding(horizontal = 12.dp)
                         )
@@ -400,18 +469,18 @@ private fun ImageViewer(file: DocumentFile, bitmap: Bitmap, onBack: () -> Unit) 
                         horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        IconButton(onClick = { zoom = (zoom - 0.5f).coerceAtLeast(1f) }) {
+                        IconButton(onClick = { applyZoom((zoom - 0.5f).coerceAtLeast(1f)) }) {
                             Icon(Icons.Default.ZoomOut, contentDescription = "Zoom out", tint = Color.White)
                         }
-                        TextButton(onClick = { zoom = 1f; offsetX = 0f; offsetY = 0f }) { Text("Fit", color = Color.White) }
-                        TextButton(onClick = { zoom = 2f }) { Text("1:1", color = Color.White) }
-                        IconButton(onClick = { zoom = (zoom + 0.5f).coerceAtMost(8f) }) {
+                        TextButton(onClick = { resetView() }) { Text("Fit", color = Color.White) }
+                        TextButton(onClick = { applyZoom(2f) }) { Text("2×", color = Color.White) }
+                        IconButton(onClick = { applyZoom((zoom + 0.5f).coerceAtMost(8f)) }) {
                             Icon(Icons.Default.ZoomIn, contentDescription = "Zoom in", tint = Color.White)
                         }
-                        IconButton(onClick = { rotation -= 90f }) {
+                        IconButton(onClick = { applyRotation(rotation - 90f) }) {
                             Icon(Icons.Default.RotateLeft, contentDescription = "Rotate left", tint = Color.White)
                         }
-                        IconButton(onClick = { rotation += 90f }) {
+                        IconButton(onClick = { applyRotation(rotation + 90f) }) {
                             Icon(Icons.Default.RotateRight, contentDescription = "Rotate right", tint = Color.White)
                         }
                         IconButton(onClick = { resetView() }) {
@@ -448,13 +517,21 @@ private fun ImageViewer(file: DocumentFile, bitmap: Bitmap, onBack: () -> Unit) 
 }
 
 private fun decodePreviewBitmap(context: android.content.Context, uri: Uri): Bitmap? {
+    val orientation = runCatching {
+        context.contentResolver.openInputStream(uri)?.use { stream ->
+            ExifInterface(stream).getAttributeInt(
+                ExifInterface.TAG_ORIENTATION,
+                ExifInterface.ORIENTATION_NORMAL
+            )
+        } ?: ExifInterface.ORIENTATION_NORMAL
+    }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
         ?: error("Cannot read image.")
     if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
 
     // Decode directly from the provider in two passes, avoiding a second full-size byte-array copy.
-    val maxDimension = 3072
+    val maxDimension = 2048
     var sampleSize = 1
     while (maxOf(bounds.outWidth / sampleSize, bounds.outHeight / sampleSize) > maxDimension) {
         sampleSize *= 2
@@ -463,7 +540,57 @@ private fun decodePreviewBitmap(context: android.content.Context, uri: Uri): Bit
         inSampleSize = sampleSize
         inPreferredConfig = Bitmap.Config.ARGB_8888
     }
-    return context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
+    val decoded = context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
+        ?: return null
+    return orientBitmap(decoded, orientation)
+}
+
+private fun orientBitmap(source: Bitmap, orientation: Int): Bitmap {
+    val matrix = Matrix()
+    when (orientation) {
+        ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.setScale(-1f, 1f)
+        ExifInterface.ORIENTATION_ROTATE_180 -> matrix.setRotate(180f)
+        ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.setScale(1f, -1f)
+        ExifInterface.ORIENTATION_TRANSPOSE -> {
+            matrix.setRotate(90f)
+            matrix.postScale(-1f, 1f)
+        }
+        ExifInterface.ORIENTATION_ROTATE_90 -> matrix.setRotate(90f)
+        ExifInterface.ORIENTATION_TRANSVERSE -> {
+            matrix.setRotate(-90f)
+            matrix.postScale(-1f, 1f)
+        }
+        ExifInterface.ORIENTATION_ROTATE_270 -> matrix.setRotate(-90f)
+        else -> return source
+    }
+    return Bitmap.createBitmap(source, 0, 0, source.width, source.height, matrix, true).also {
+        if (it !== source) source.recycle()
+    }
+}
+
+private fun clampImageTranslation(
+    bitmap: Bitmap,
+    viewport: IntSize,
+    zoom: Float,
+    rotation: Float,
+    x: Float,
+    y: Float
+): Offset {
+    if (viewport.width <= 0 || viewport.height <= 0) return Offset.Zero
+    val fitScale = minOf(
+        viewport.width.toFloat() / bitmap.width.coerceAtLeast(1),
+        viewport.height.toFloat() / bitmap.height.coerceAtLeast(1)
+    )
+    val width = bitmap.width * fitScale * zoom
+    val height = bitmap.height * fitScale * zoom
+    val radians = Math.toRadians(rotation.toDouble())
+    val cosine = kotlin.math.abs(kotlin.math.cos(radians)).toFloat()
+    val sine = kotlin.math.abs(kotlin.math.sin(radians)).toFloat()
+    val rotatedWidth = kotlin.math.abs(width * cosine) + kotlin.math.abs(height * sine)
+    val rotatedHeight = kotlin.math.abs(width * sine) + kotlin.math.abs(height * cosine)
+    val maxX = ((rotatedWidth - viewport.width) / 2f).coerceAtLeast(0f)
+    val maxY = ((rotatedHeight - viewport.height) / 2f).coerceAtLeast(0f)
+    return Offset(x.coerceIn(-maxX, maxX), y.coerceIn(-maxY, maxY))
 }
 
 private fun decodePreviewBitmap(data: ByteArray): Bitmap? {

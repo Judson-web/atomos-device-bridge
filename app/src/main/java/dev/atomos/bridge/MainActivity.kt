@@ -150,7 +150,7 @@ private fun AtomosApp(store: SecureStore, activityScope: CoroutineScope) {
                     val target = copyUriToCache(context, uri, name, "picked")
                     ArchiveInstaller.prepare(context, target)
                 }
-                ArchiveInstaller.install(context, prepared.files)
+                ArchiveInstaller.install(context, prepared)
                 status = "Installer session started for ${prepared.label}"
             } catch (e: Exception) { status = e.message ?: "Unable to prepare installer." }
             finally { busy = false }
@@ -200,7 +200,7 @@ private fun AtomosApp(store: SecureStore, activityScope: CoroutineScope) {
                                     val target = copyUriToCache(context, file.uri, file.name ?: "package.apk", "file")
                                     ArchiveInstaller.prepare(context, target)
                                 }
-                                ArchiveInstaller.install(context, prepared.files)
+                                ArchiveInstaller.install(context, prepared)
                                 status = "Installer session started for ${prepared.label}"
                             } catch (e: Exception) { status = e.message ?: "Install failed." }
                             finally { busy = false }

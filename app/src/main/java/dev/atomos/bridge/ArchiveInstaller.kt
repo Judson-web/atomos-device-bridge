@@ -3,6 +3,9 @@ package dev.atomos.bridge
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInstaller
+import android.os.Build
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import android.net.Uri
 import android.provider.Settings
 import java.io.File
@@ -10,7 +13,7 @@ import java.util.UUID
 import java.util.zip.ZipFile
 
 object ArchiveInstaller {
-    data class Prepared(val files: List<File>, val label: String)
+    data class Prepared(val files: List<File>, val label: String, val packageName: String, val installNames: List<String>)
 
     private const val MAX_SOURCE_BYTES = 1_000_000_000L
     private const val MAX_EXPANDED_APK_BYTES = 1_000_000_000L
@@ -28,7 +31,14 @@ object ArchiveInstaller {
         }
 
         val ext = source.extension.lowercase()
-        if (ext == "apk") return Prepared(listOf(source), source.name)
+        if (ext == "apk") {
+            return try {
+                Prepared(listOf(source), source.name, packageNameFor(context, source), listOf("base.apk"))
+            } catch (e: Exception) {
+                source.delete()
+                throw e
+            }
+        }
         if (ext !in setOf("apkm", "apks", "apkx", "xapk", "zip")) {
             source.delete()
             error("Choose an APK, APKM, APKS, APKX or XAPK file.")
@@ -78,6 +88,7 @@ object ArchiveInstaller {
                             }
                         }
                         require(entryBytes > 0L && target.length() == entryBytes) { "An APK in the archive is empty or incomplete." }
+                        packageNameFor(context, target)
                         apks += Pair(normalizedName, target)
                     } catch (e: Exception) {
                         target.delete()
@@ -87,14 +98,32 @@ object ArchiveInstaller {
             }
 
             require(apks.isNotEmpty()) { "No APK files were found in this archive." }
-            val ordered = apks.sortedBy { (entryName, _) ->
-                when (entryName.substringAfterLast('/').lowercase()) {
-                    "base.apk" -> 0
-                    else -> if (entryName.substringAfterLast('/').lowercase().startsWith("base-")) 1 else 2
+            val baseEntries = apks.filter {
+                it.first.substringAfterLast('/').lowercase() in setOf("base.apk", "base-master.apk")
+            }
+            require(baseEntries.size == 1) {
+                "This split package has no unique base APK and cannot be installed safely."
+            }
+            val packageNames = apks.map { packageNameFor(context, it.second) }.toSet()
+            require(packageNames.size == 1) { "The archive contains APKs from different Android packages." }
+            val orderedEntries = apks.sortedBy { (entryName, _) ->
+                val name = entryName.substringAfterLast('/').lowercase()
+                when {
+                    name == "base.apk" || name == "base-master.apk" -> 0
+                    name.startsWith("base-") -> 1
+                    else -> 2
                 }
-            }.map { it.second }
+            }
+            val installNames = orderedEntries.map { (entryName, _) ->
+                val name = entryName.substringAfterLast('/')
+                if (name.equals("base.apk", true) || name.equals("base-master.apk", true)) "base.apk" else name
+            }
+            require(installNames.distinct().size == installNames.size) {
+                "The archive contains duplicate APK split filenames."
+            }
+            val ordered = orderedEntries.map { it.second }
             source.delete()
-            return Prepared(ordered, source.name)
+            return Prepared(ordered, source.name, packageNames.single(), installNames)
         } catch (e: Exception) {
             out.deleteRecursively()
             source.delete()
@@ -102,48 +131,68 @@ object ArchiveInstaller {
         }
     }
 
-    fun install(context: Context, files: List<File>) {
-        require(files.isNotEmpty()) { "No APK files selected." }
+    suspend fun install(context: Context, prepared: Prepared) {
+        require(prepared.files.isNotEmpty()) { "No APK files selected." }
+        require(prepared.files.size == prepared.installNames.size) { "The package split metadata is incomplete." }
         try {
             if (!context.packageManager.canRequestPackageInstalls()) {
-                context.startActivity(
-                    Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}"))
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                )
+                withContext(Dispatchers.Main.immediate) {
+                    context.startActivity(
+                        Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}"))
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                }
                 error("Allow Atomos to install unknown apps, then choose the package again.")
             }
 
-            val installer = context.packageManager.packageInstaller
-            val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
-            val id = installer.createSession(params)
-            try {
-                installer.openSession(id).use { session ->
-                    files.forEachIndexed { index, file ->
-                        require(file.isFile && file.length() > 0L) { "An APK in the selected package is empty or missing." }
-                        val name = if (index == 0) "base.apk" else "split-${index}.apk"
-                        file.inputStream().buffered().use { input ->
-                            session.openWrite(name, 0, file.length()).use { output ->
-                                input.copyTo(output, 64 * 1024)
-                                session.fsync(output)
+            withContext(Dispatchers.IO) {
+                val installer = context.packageManager.packageInstaller
+                val totalBytes = prepared.files.sumOf { it.length() }
+                require(totalBytes > 0L) { "The selected package is empty." }
+                val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
+                    setSize(totalBytes)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        setAppPackageName(prepared.packageName)
+                    }
+                }
+                val id = installer.createSession(params)
+                try {
+                    installer.openSession(id).use { session ->
+                        prepared.files.forEachIndexed { index, file ->
+                            require(file.isFile && file.length() > 0L) { "An APK in the selected package is empty or missing." }
+                            val name = prepared.installNames[index]
+                            file.inputStream().buffered().use { input ->
+                                session.openWrite(name, 0, file.length()).use { output ->
+                                    input.copyTo(output, 64 * 1024)
+                                    session.fsync(output)
+                                }
                             }
                         }
+                        val intent = Intent(context, InstallResultReceiver::class.java)
+                        val pending = android.app.PendingIntent.getBroadcast(
+                            context,
+                            id,
+                            intent,
+                            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_MUTABLE
+                        )
+                        session.commit(pending.intentSender)
                     }
-                    val intent = Intent(context, InstallResultReceiver::class.java)
-                    val pending = android.app.PendingIntent.getBroadcast(
-                        context,
-                        id,
-                        intent,
-                        android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_MUTABLE
-                    )
-                    session.commit(pending.intentSender)
+                } catch (e: Exception) {
+                    runCatching { installer.abandonSession(id) }
+                    throw e
                 }
-            } catch (e: Exception) {
-                runCatching { installer.abandonSession(id) }
-                throw e
             }
         } finally {
-            cleanupTemporaryFiles(context, files)
+            cleanupTemporaryFiles(context, prepared.files)
         }
+    }
+
+    private fun packageNameFor(context: Context, file: File): String {
+        require(file.isFile && file.length() > 0L) { "An APK in the selected package is empty." }
+        val info = context.packageManager.getPackageArchiveInfo(file.absolutePath, 0)
+            ?: error("An APK in the selected package is invalid or unreadable.")
+        return info.packageName?.takeIf { it.isNotBlank() }
+            ?: error("An APK in the selected package has no valid package identity.")
     }
 
     private fun cleanupTemporaryFiles(context: Context, files: List<File>) {

@@ -6,6 +6,7 @@ import android.os.Build
 import android.os.Environment
 import android.provider.Settings
 import java.io.File
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -55,15 +56,18 @@ fun FileManagerScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val store = remember { SecureStore(context) }
-    var allFilesAccess by remember {
-        mutableStateOf(Build.VERSION.SDK_INT < Build.VERSION_CODES.R || Environment.isExternalStorageManager())
-    }
+    val initiallyHasAllFilesAccess = Build.VERSION.SDK_INT < Build.VERSION_CODES.R || Environment.isExternalStorageManager()
+    var allFilesAccess by remember { mutableStateOf(initiallyHasAllFilesAccess) }
     var rootUri by remember {
-        mutableStateOf<Uri?>(
-            (store.get("file_root_uri") ?: store.get("folder_uri"))?.let(Uri::parse)
-                ?: if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
-                    Uri.fromFile(Environment.getExternalStorageDirectory())
-                } else null
+        val storedFileRoot = store.get("file_root_uri")?.let(Uri::parse)
+        val storedFolderRoot = store.get("folder_uri")?.let(Uri::parse)
+        mutableStateOf(
+            when {
+                initiallyHasAllFilesAccess && storedFileRoot?.scheme == "file" -> storedFileRoot
+                storedFolderRoot != null && storedFolderRoot.scheme != "file" -> storedFolderRoot
+                initiallyHasAllFilesAccess -> Uri.fromFile(Environment.getExternalStorageDirectory())
+                else -> null
+            }
         )
     }
     val path = remember { mutableStateListOf<DocumentFile>() }
@@ -91,6 +95,13 @@ fun FileManagerScreen(
     var reloadVersion by remember { mutableIntStateOf(0) }
     var deleteTarget by remember { mutableStateOf<DocumentFile?>(null) }
 
+    BackHandler(enabled = path.isNotEmpty() || searchOpen) {
+        when {
+            path.isNotEmpty() -> path.removeAt(path.lastIndex)
+            searchOpen -> { searchOpen = false; search = "" }
+        }
+    }
+
     val current = path.lastOrNull() ?: rootUri?.let { uri ->
         if (uri.scheme == "file") uri.path?.let { DocumentFile.fromFile(File(it)) }
         else DocumentFile.fromTreeUri(context, uri)
@@ -103,11 +114,14 @@ fun FileManagerScreen(
         ActivityResultContracts.StartActivityForResult()
     ) {
         allFilesAccess = Build.VERSION.SDK_INT < Build.VERSION_CODES.R || Environment.isExternalStorageManager()
-        if (allFilesAccess && rootUri?.scheme != "file") {
+        if (allFilesAccess) {
             val primaryStorage = Uri.fromFile(Environment.getExternalStorageDirectory())
             rootUri = primaryStorage
             store.put("file_root_uri", primaryStorage.toString())
-            store.put("folder_uri", primaryStorage.toString())
+            path.clear()
+            category = "All files"
+        } else if (rootUri?.scheme == "file") {
+            rootUri = store.get("folder_uri")?.let(Uri::parse)?.takeIf { it.scheme != "file" }
             path.clear()
             category = "All files"
         }
@@ -119,7 +133,15 @@ fun FileManagerScreen(
                 Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
                 Uri.parse("package:${context.packageName}")
             )
-            allFilesAccessLauncher.launch(intent)
+            try {
+                allFilesAccessLauncher.launch(intent)
+            } catch (_: Exception) {
+                try {
+                    allFilesAccessLauncher.launch(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+                } catch (e: Exception) {
+                    toast = e.message ?: "Open Android Settings to grant shared-storage access."
+                }
+            }
         }
     }
     val rootPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -393,7 +415,7 @@ fun FileManagerScreen(
                             Text(if (search.isNotBlank()) "Try another search." else "Create a folder or choose another location.", color = FileMuted)
                         }
                     }
-                    grid -> LazyVerticalGrid(columns = GridCells.Fixed(2), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    grid -> LazyVerticalGrid(columns = GridCells.Adaptive(minSize = 156.dp), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         gridItems(filtered, key = { it.uri.toString() }) { file ->
                             FileGridTile(file, onClick = { if (file.isDirectory) path.add(file) else openFile(file) }, onMenu = { itemMenu = file })
                         }
@@ -545,24 +567,6 @@ private fun fileGlyph(file: DocumentFile): String {
     }
 }
 
-private fun isSafeFileName(value: String): Boolean =
-    value.isNotBlank() &&
-        value != "." &&
-        value != ".." &&
-        value.length <= 255 &&
-        value.none { it == '/' || it == '\\' || it == ':' || Character.isISOControl(it) }
-
-private fun safeArchiveSegment(value: String): String {
-    val cleaned = value
-        .replace('/', '_')
-        .replace('\\', '_')
-        .replace(':', '_')
-        .filterNot { Character.isISOControl(it) }
-        .trim()
-        .take(255)
-    return cleaned.takeUnless { it.isBlank() || it == "." || it == ".." } ?: "unnamed"
-}
-
 private fun uniqueChildName(parent: DocumentFile, desired: String): String {
     if (parent.findFile(desired) == null) return desired
     val dot = desired.lastIndexOf('.')
@@ -650,10 +654,7 @@ private fun extractZip(context: android.content.Context, archive: DocumentFile, 
                 entryCount++
                 require(entryCount <= 10_000) { "Archive contains too many entries." }
 
-                val normalized = entry.name.replace('\\', '/')
-                require(normalized.length <= 4096 && !normalized.startsWith("/")) { "Unsafe ZIP entry path rejected." }
-                val parts = normalized.split('/').filter { it.isNotEmpty() }
-                require(parts.isNotEmpty() && parts.all { isSafeFileName(it) }) { "Unsafe ZIP entry path rejected." }
+                val parts = normalizeArchiveEntryPath(entry.name)
 
                 var directory = root
                 val directoryParts = parts.dropLast(if (entry.isDirectory) 0 else 1)

@@ -36,22 +36,24 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Ensure Android SDK 35
+      - name: Ensure Android 17 SDK 37
         shell: bash
         run: |
           set -euo pipefail
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          if [[ ! -d "$ANDROID_HOME/platforms/android-35" || ! -d "$ANDROID_HOME/build-tools/35.0.0" ]]; then
+          if [[ ! -d "$ANDROID_HOME/platforms/android-37.0" || ! -d "$ANDROID_HOME/build-tools/37.0.0" ]]; then
+            set +o pipefail
             yes | "$SDKMANAGER" --licenses >/dev/null
-            "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+            set -o pipefail
+            "$SDKMANAGER" --channel=3 "platforms;android-37.0" "build-tools;37.0.0" "platform-tools"
           else
-            echo "Android SDK 35 and Build Tools 35.0.0 already installed; skipping download."
+            echo "Android SDK 37.0 and Build Tools 37.0.0 already installed; skipping download."
           fi
 
-      - name: Set up Gradle 8.9 with dependency cache
+      - name: Set up Gradle 9.3.1 with dependency cache
         uses: gradle/actions/setup-gradle@v6
         with:
-          gradle-version: '8.9'
+          gradle-version: '9.3.1'
           cache-provider: basic
 
       - name: Cache Gradle configuration
@@ -175,9 +177,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          find app/build/outputs/apk/debug -type f -name '*.apk' -print -quit | grep -q .
+          test "$(find app/build/outputs/apk/debug -type f -name '*.apk' | wc -l)" -eq 1
           if [[ "$GITHUB_REF" == refs/tags/v* || ("$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF" == "refs/heads/main") ]]; then
-            find app/build/outputs/apk/release -type f -name '*.apk' -print -quit | grep -q .
+            test "$(find app/build/outputs/apk/release -type f -name '*.apk' | wc -l)" -eq 1
           fi
 
       - name: Upload debug APK artifact

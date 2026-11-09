@@ -4,7 +4,7 @@
  <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
  <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
  <application android:allowBackup="false" android:label="Atomos" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher" android:theme="@style/Theme.AtomosBridge" android:usesCleartextTraffic="false">
-  <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop">
+  <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop" android:resizeableActivity="true">
    <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
    </activity>
   <receiver android:name=".InstallResultReceiver" android:exported="false" />
