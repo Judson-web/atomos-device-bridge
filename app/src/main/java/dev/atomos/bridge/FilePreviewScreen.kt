@@ -174,10 +174,10 @@ fun FilePreviewScreen(file: DocumentFile, onBack: () -> Unit) {
             bitmap = null
             animatedDrawable = null
             previewError = "This image is too large or complex to decode safely on this device. Try a smaller copy."
-            android.util.Log.e("AtomosImage", "Image decode exhausted app memory for $file.uri", e)
+            android.util.Log.e("AtomosImage", "Image decode exhausted app memory for ${file.uri}", e)
         } catch (e: Exception) {
             previewError = e.message ?: "Cannot preview file."
-            android.util.Log.e("AtomosImage", "Image preview failed for $file.uri", e)
+            android.util.Log.e("AtomosImage", "Image preview failed for ${file.uri}", e)
         } finally {
             loading = false
         }
@@ -714,7 +714,7 @@ private fun decodePreviewBitmap(context: android.content.Context, uri: Uri): Bit
         } catch (error: OutOfMemoryError) {
             throw error
         } catch (error: Exception) {
-            android.util.Log.w("AtomosImage", "ImageDecoder failed for $file.uri; trying BitmapFactory", error)
+            android.util.Log.w("AtomosImage", "ImageDecoder failed for $uri; trying BitmapFactory", error)
         }
     }
     val orientation = runCatching {
