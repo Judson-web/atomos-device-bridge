@@ -449,7 +449,8 @@ fun FileManagerScreen(
         }
     }
 
-    transferProgress?.let { progress -> AlertDialog(onDismissRequest = {}, title = { Text("File transfer") }, text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { LinearProgressIndicator(Modifier.fillMaxWidth()); Text(progress) } }, confirmButton = { TextButton(onClick = { transferJob?.cancel() }) { Text("Cancel queue") } }) }\n    if (busyFiles) AlertDialog(onDismissRequest = {}, title = { Text("Processing archive") }, text = { Row(verticalAlignment = Alignment.CenterVertically) { CircularProgressIndicator(); Spacer(Modifier.width(12.dp)); Text("Working locally…") } }, confirmButton = {})
+    transferProgress?.let { progress -> AlertDialog(onDismissRequest = {}, title = { Text("File transfer") }, text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { LinearProgressIndicator(Modifier.fillMaxWidth()); Text(progress) } }, confirmButton = { TextButton(onClick = { transferJob?.cancel() }) { Text("Cancel queue") } }) }
+    if (busyFiles) AlertDialog(onDismissRequest = {}, title = { Text("Processing archive") }, text = { Row(verticalAlignment = Alignment.CenterVertically) { CircularProgressIndicator(); Spacer(Modifier.width(12.dp)); Text("Working locally…") } }, confirmButton = {})
     previewFile?.let { file -> FilePreviewScreen(file, onBack = { previewFile = null }) }
     itemMenu?.let { file ->
         AlertDialog(
@@ -539,6 +540,7 @@ fun FileManagerScreen(
 }
 
 @Composable
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 private fun FileListRow(file: DocumentFile, selected: Boolean, onClick: () -> Unit, onLongClick: () -> Unit, onMenu: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick).padding(horizontal = 12.dp, vertical = 11.dp),
@@ -555,6 +557,7 @@ private fun FileListRow(file: DocumentFile, selected: Boolean, onClick: () -> Un
 }
 
 @Composable
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 private fun FileGridTile(file: DocumentFile, selected: Boolean, onClick: () -> Unit, onLongClick: () -> Unit, onMenu: () -> Unit) {
     Card(modifier = Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick), colors = CardDefaults.cardColors(containerColor = if (selected) FileViolet.copy(alpha = .18f) else FileSurface), shape = RoundedCornerShape(18.dp)) {
         Column(Modifier.fillMaxWidth().height(132.dp).padding(12.dp), verticalArrangement = Arrangement.SpaceBetween) {
