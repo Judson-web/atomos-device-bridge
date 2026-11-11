@@ -183,8 +183,8 @@ private fun AtomosApp(store: SecureStore, activityScope: CoroutineScope) {
             },
             bottomBar = {
                 if (page != "Files") NavigationBar(containerColor = SurfaceDark) {
-                    listOf("Home", "Network", "Files", "Installer", "Settings").forEach { item ->
-                        NavigationBarItem(selected = page == item, onClick = { page = item }, icon = { Text(when(item) { "Home" -> "⌂"; "Network" -> "⌁"; "Files" -> "▤"; "Installer" -> "⬇"; else -> "⚙" }) }, label = { Text(item) })
+                    listOf("Home", "Network", "Files", "Storage", "Installer", "Settings").forEach { item ->
+                        NavigationBarItem(selected = page == item, onClick = { page = item }, icon = { Text(when(item) { "Home" -> "⌂"; "Network" -> "⌁"; "Files" -> "▤"; "Storage" -> "◫"; "Installer" -> "⬇"; else -> "⚙" }) }, label = { Text(item) })
                     }
                 }
             }
@@ -209,7 +209,7 @@ private fun AtomosApp(store: SecureStore, activityScope: CoroutineScope) {
                 )
             } else Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 18.dp)) {
                 when (page) {
-                    "Home" -> HomePage(network, status, onNetwork = { page = "Network" }, onFiles = { page = "Files" }, onInstaller = { page = "Installer" }, onSpeed = { page = "Network" })
+                    "Home" -> HomePage(network, status, onNetwork = { page = "Network" }, onFiles = { page = "Files" }, onInstaller = { page = "Installer" }, onSpeed = { page = "Network" }, onStorage = { page = "Storage" })
                     "Network" -> NetworkPage(network, speedResult, speedBusy, speedProgress) {
                         if (!speedBusy) activityScope.launch {
                             speedBusy = true; speedProgress = 0f
@@ -218,6 +218,7 @@ private fun AtomosApp(store: SecureStore, activityScope: CoroutineScope) {
                             finally { speedBusy = false; speedProgress = 1f }
                         }
                     }
+                    "Storage" -> StorageInsightsScreen()
                     "Installer" -> InstallerPage(status, busy, { filePicker.launch(arrayOf("*/*")) }, { status = "Supported: APK, APKM, APKS, APKX and XAPK. Split archives are installed as one package session." })
                     "Settings" -> SettingsPage(status, network.ipAddress)
                 }
@@ -228,7 +229,7 @@ private fun AtomosApp(store: SecureStore, activityScope: CoroutineScope) {
     }
 }
 
-@Composable private fun HomePage(n: NetworkSnapshot, status: String, onNetwork: () -> Unit, onFiles: () -> Unit, onInstaller: () -> Unit, onSpeed: () -> Unit) {
+@Composable private fun HomePage(n: NetworkSnapshot, status: String, onNetwork: () -> Unit, onFiles: () -> Unit, onInstaller: () -> Unit, onSpeed: () -> Unit, onStorage: () -> Unit) {
     LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 18.dp)) {
         item { Text("Your device, at a glance.", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
         item { Card(colors = CardDefaults.cardColors(containerColor = SurfaceDark), shape = RoundedCornerShape(24.dp)) {
@@ -244,6 +245,7 @@ private fun AtomosApp(store: SecureStore, activityScope: CoroutineScope) {
         } }
         item { UtilityCard("Network monitor", "Live connection, throughput, IP and speed test", "↗", onNetwork) }
         item { UtilityCard("File manager", "Browse folders, organize and inspect files", "▤", onFiles) }
+        item { UtilityCard("Storage insights", "See available space, file categories and large files", "◫", onStorage) }
         item { UtilityCard("Package installer", "Install APK and split APK archives", "⬇", onInstaller) }
         item { Text("More utilities will appear here as independent tiles.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
     }
@@ -333,7 +335,7 @@ private fun AtomosApp(store: SecureStore, activityScope: CoroutineScope) {
                 Text("Local IP: " + ip.ifBlank { "Unavailable" })
                 Text("Android 10 and newer · Local-first utility suite")
                 Text("No account or sign-in required")
-                Text("Atomos 1.0.7")
+                Text("Atomos 1.1 development")
             }
         }
         Card(colors = CardDefaults.cardColors(containerColor = SurfaceDark)) {

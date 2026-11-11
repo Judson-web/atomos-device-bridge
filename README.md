@@ -14,6 +14,7 @@ Atomos is a **local-first Android utility app for a personally managed device**.
 ## Features
 
 ### File manager
+- Read-only storage insights dashboard with free/used capacity, category totals, and largest discovered files (bounded scan; never deletes automatically).
 - Browse folders granted by the user, with breadcrumbs and back navigation.
 - Search the current folder, filter by file category, show or hide dotfiles, and sort by name, size or modification time.
 - Switch between list and grid layouts.

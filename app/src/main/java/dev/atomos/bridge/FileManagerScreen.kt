@@ -10,6 +10,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -76,10 +77,10 @@ fun FileManagerScreen(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     var searchOpen by remember { mutableStateOf(false) }
     var search by remember { mutableStateOf("") }
-    var grid by remember { mutableStateOf(false) }
-    var showHidden by remember { mutableStateOf(false) }
-    var sortBy by remember { mutableStateOf("Name") }
-    var category by remember { mutableStateOf("All files") }
+    var grid by remember { mutableStateOf(store.get("fm_grid") == "true") }
+    var showHidden by remember { mutableStateOf(store.get("fm_show_hidden") == "true") }
+    var sortBy by remember { mutableStateOf(store.get("fm_sort")?.takeIf { it in setOf("Name", "Size", "Modified") } ?: "Name") }
+    var category by remember { mutableStateOf(store.get("fm_category")?.takeIf { it in setOf("All files", "Images", "Videos", "Audio", "Documents", "APKs") } ?: "All files") }
     var menuOpen by remember { mutableStateOf(false) }
     var itemMenu by remember { mutableStateOf<DocumentFile?>(null) }
     var createDialog by remember { mutableStateOf(false) }
@@ -87,13 +88,21 @@ fun FileManagerScreen(
     var renameTarget by remember { mutableStateOf<DocumentFile?>(null) }
     var renameName by remember { mutableStateOf("") }
     var detailsTarget by remember { mutableStateOf<DocumentFile?>(null) }
-    var transferSource by remember { mutableStateOf<DocumentFile?>(null) }
+    var transferSources by remember { mutableStateOf<List<DocumentFile>>(emptyList()) }
+    val selectedUris = remember { mutableStateListOf<String>() }
+    var transferProgress by remember { mutableStateOf<String?>(null) }
+    var transferJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var transferMove by remember { mutableStateOf(false) }
     var toast by remember { mutableStateOf("") }
     var previewFile by remember { mutableStateOf<DocumentFile?>(null) }
     var busyFiles by remember { mutableStateOf(false) }
     var reloadVersion by remember { mutableIntStateOf(0) }
     var deleteTarget by remember { mutableStateOf<DocumentFile?>(null) }
+
+    LaunchedEffect(grid) { store.put("fm_grid", grid.toString()) }
+    LaunchedEffect(showHidden) { store.put("fm_show_hidden", showHidden.toString()) }
+    LaunchedEffect(sortBy) { store.put("fm_sort", sortBy) }
+    LaunchedEffect(category) { store.put("fm_category", category) }
 
     BackHandler(enabled = path.isNotEmpty() || searchOpen) {
         when {
@@ -154,46 +163,54 @@ fun FileManagerScreen(
         }
     }
     val destinationPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        val source = transferSource
-        if (uri != null && source != null) {
+        val sources = transferSources
+        if (uri != null && sources.isNotEmpty()) {
             runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION) }
-            scope.launch {
+            transferJob = scope.launch {
+                var completed = 0
+                var failed = 0
                 try {
-                    withContext(Dispatchers.IO) {
-                        val destination = DocumentFile.fromTreeUri(context, uri) ?: error("Cannot open destination folder.")
-                        val original = source.name ?: "file"
-                        var targetName = original
-                        var suffix = 1
-                        while (destination.findFile(targetName) != null) {
-                            val dot = original.lastIndexOf('.')
-                            targetName = if (dot > 0) "${original.substring(0, dot)} ($suffix)${original.substring(dot)}" else "$original ($suffix)"
-                            suffix++
-                        }
-                        val target = destination.createFile(source.type ?: "application/octet-stream", targetName)
-                            ?: error("Could not create the destination file.")
+                    val destination = withContext(Dispatchers.IO) { DocumentFile.fromTreeUri(context, uri) ?: error("Cannot open destination folder.") }
+                    for (source in sources) {
+                        transferProgress = "Processing ${completed + failed + 1} of ${sources.size}: ${source.name ?: "file"}"
                         try {
-                            context.contentResolver.openInputStream(source.uri)?.use { input ->
-                                context.contentResolver.openOutputStream(target.uri, "w")?.use { output -> input.copyTo(output) }
-                                    ?: error("Could not write the destination file.")
-                            } ?: error("Could not read the source file.")
-                            if (transferMove && !source.delete()) error("Copied, but Android could not delete the original.")
-                        } catch (e: Exception) {
-                            target.delete()
-                            throw e
-                        }
+                            withContext(Dispatchers.IO) {
+                                val original = source.name ?: "file"
+                                var targetName = original
+                                var suffix = 1
+                                while (destination.findFile(targetName) != null) {
+                                    val dot = original.lastIndexOf('.')
+                                    targetName = if (dot > 0) "${original.substring(0, dot)} ($suffix)${original.substring(dot)}" else "$original ($suffix)"
+                                    suffix++
+                                }
+                                val target = destination.createFile(source.type ?: "application/octet-stream", targetName) ?: error("Could not create $targetName")
+                                try {
+                                    context.contentResolver.openInputStream(source.uri)?.use { input ->
+                                        context.contentResolver.openOutputStream(target.uri, "w")?.use { output -> input.copyTo(output) } ?: error("Could not write $targetName")
+                                    } ?: error("Could not read ${source.name}")
+                                    if (transferMove && !source.delete()) error("Copied ${source.name}, but could not remove its original")
+                                } catch (e: Exception) {
+                                    target.delete()
+                                    throw e
+                                }
+                            }
+                            completed++
+                        } catch (_: Exception) { failed++ }
                     }
-                    toast = if (transferMove) "File moved" else "File copied"
+                    toast = "$completed copied/moved" + if (failed > 0) " · $failed failed" else ""
                     reload()
-                } catch (e: Exception) {
-                    toast = e.message ?: "Transfer failed"
                 } finally {
-                    transferSource = null
+                    transferProgress = null
+                    transferSources = emptyList()
                     transferMove = false
+                    selectedUris.clear()
+                    transferJob = null
                 }
             }
         } else {
-            transferSource = null
+            transferSources = emptyList()
             transferMove = false
+            selectedUris.clear()
         }
     }
 
@@ -418,12 +435,12 @@ fun FileManagerScreen(
                     }
                     grid -> LazyVerticalGrid(columns = GridCells.Adaptive(minSize = 156.dp), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         gridItems(filtered, key = { it.uri.toString() }) { file ->
-                            FileGridTile(file, onClick = { if (file.isDirectory) path.add(file) else openFile(file) }, onMenu = { itemMenu = file })
+                            FileGridTile(file, selected = file.uri.toString() in selectedUris, onClick = { if (selectedUris.isNotEmpty()) { val key = file.uri.toString(); if (key in selectedUris) selectedUris.remove(key) else selectedUris.add(key) } else if (file.isDirectory) path.add(file) else openFile(file) }, onLongClick = { val key = file.uri.toString(); if (key !in selectedUris) selectedUris.add(key) }, onMenu = { itemMenu = file })
                         }
                     }
                     else -> LazyColumn(contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         items(filtered, key = { it.uri.toString() }) { file ->
-                            FileListRow(file, onClick = { if (file.isDirectory) path.add(file) else openFile(file) }, onMenu = { itemMenu = file })
+                            FileListRow(file, selected = file.uri.toString() in selectedUris, onClick = { if (selectedUris.isNotEmpty()) { val key = file.uri.toString(); if (key in selectedUris) selectedUris.remove(key) else selectedUris.add(key) } else if (file.isDirectory) path.add(file) else openFile(file) }, onLongClick = { val key = file.uri.toString(); if (key !in selectedUris) selectedUris.add(key) }, onMenu = { itemMenu = file })
                         }
                     }
                 }
@@ -432,6 +449,7 @@ fun FileManagerScreen(
         }
     }
 
+    transferProgress?.let { progress -> AlertDialog(onDismissRequest = {}, title = { Text("File transfer") }, text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { LinearProgressIndicator(Modifier.fillMaxWidth()); Text(progress) } }, confirmButton = { TextButton(onClick = { transferJob?.cancel() }) { Text("Cancel queue") } }) }
     if (busyFiles) AlertDialog(onDismissRequest = {}, title = { Text("Processing archive") }, text = { Row(verticalAlignment = Alignment.CenterVertically) { CircularProgressIndicator(); Spacer(Modifier.width(12.dp)); Text("Working locally…") } }, confirmButton = {})
     previewFile?.let { file -> FilePreviewScreen(file, onBack = { previewFile = null }) }
     itemMenu?.let { file ->
@@ -446,8 +464,8 @@ fun FileManagerScreen(
                     }
                     TextButton(onClick = { itemMenu = null; busyFiles = true; scope.launch { try { val result = withContext(Dispatchers.IO) { compressToZip(context, file, current) }; toast = "Created ${result.name}"; reload() } catch (e: Exception) { toast = e.message ?: "ZIP creation failed" } finally { busyFiles = false } } }, modifier = Modifier.fillMaxWidth()) { Text("Compress to ZIP", modifier = Modifier.fillMaxWidth()) }
                     if (!file.isDirectory) {
-                        TextButton(onClick = { itemMenu = null; transferSource = file; transferMove = false; destinationPicker.launch(null) }, modifier = Modifier.fillMaxWidth()) { Text("Copy to…", modifier = Modifier.fillMaxWidth()) }
-                        TextButton(onClick = { itemMenu = null; transferSource = file; transferMove = true; destinationPicker.launch(null) }, modifier = Modifier.fillMaxWidth()) { Text("Move to…", modifier = Modifier.fillMaxWidth()) }
+                        TextButton(onClick = { itemMenu = null; transferSources = listOf(file); transferMove = false; destinationPicker.launch(null) }, modifier = Modifier.fillMaxWidth()) { Text("Copy to…", modifier = Modifier.fillMaxWidth()) }
+                        TextButton(onClick = { itemMenu = null; transferSources = listOf(file); transferMove = true; destinationPicker.launch(null) }, modifier = Modifier.fillMaxWidth()) { Text("Move to…", modifier = Modifier.fillMaxWidth()) }
                     }
                     TextButton(onClick = { itemMenu = null; renameTarget = file; renameName = file.name.orEmpty() }, modifier = Modifier.fillMaxWidth()) { Text("Rename", modifier = Modifier.fillMaxWidth()) }
                     TextButton(onClick = { itemMenu = null; detailsTarget = file }, modifier = Modifier.fillMaxWidth()) { Text("Details", modifier = Modifier.fillMaxWidth()) }
@@ -522,12 +540,13 @@ fun FileManagerScreen(
 }
 
 @Composable
-private fun FileListRow(file: DocumentFile, onClick: () -> Unit, onMenu: () -> Unit) {
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+private fun FileListRow(file: DocumentFile, selected: Boolean, onClick: () -> Unit, onLongClick: () -> Unit, onMenu: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 11.dp),
+        Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick).padding(horizontal = 12.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(fileGlyph(file), fontSize = 24.sp, color = FileViolet, modifier = Modifier.width(42.dp))
+        Text(if (selected) "✓" else fileGlyph(file), fontSize = 24.sp, color = FileViolet, modifier = Modifier.width(42.dp))
         Column(Modifier.weight(1f)) {
             Text(file.name ?: "Unnamed", fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(if (file.isDirectory) "Folder" else "${android.text.format.Formatter.formatShortFileSize(androidx.compose.ui.platform.LocalContext.current, file.length())}  ·  ${file.type ?: "File"}", color = FileMuted, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -538,11 +557,12 @@ private fun FileListRow(file: DocumentFile, onClick: () -> Unit, onMenu: () -> U
 }
 
 @Composable
-private fun FileGridTile(file: DocumentFile, onClick: () -> Unit, onMenu: () -> Unit) {
-    Card(onClick = onClick, colors = CardDefaults.cardColors(containerColor = FileSurface), shape = RoundedCornerShape(18.dp)) {
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+private fun FileGridTile(file: DocumentFile, selected: Boolean, onClick: () -> Unit, onLongClick: () -> Unit, onMenu: () -> Unit) {
+    Card(modifier = Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick), colors = CardDefaults.cardColors(containerColor = if (selected) FileViolet.copy(alpha = .18f) else FileSurface), shape = RoundedCornerShape(18.dp)) {
         Column(Modifier.fillMaxWidth().height(132.dp).padding(12.dp), verticalArrangement = Arrangement.SpaceBetween) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(fileGlyph(file), fontSize = 28.sp, color = FileViolet)
+                Text(if (selected) "✓" else fileGlyph(file), fontSize = 28.sp, color = FileViolet)
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick = onMenu, modifier = Modifier.size(30.dp)) { Icon(Icons.Default.MoreVert, contentDescription = "File options", tint = FileMuted) }
             }
