@@ -10,6 +10,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -87,7 +88,10 @@ fun FileManagerScreen(
     var renameTarget by remember { mutableStateOf<DocumentFile?>(null) }
     var renameName by remember { mutableStateOf("") }
     var detailsTarget by remember { mutableStateOf<DocumentFile?>(null) }
-    var transferSource by remember { mutableStateOf<DocumentFile?>(null) }
+    var transferSources by remember { mutableStateOf<List<DocumentFile>>(emptyList()) }
+    val selectedUris = remember { mutableStateListOf<String>() }
+    var transferProgress by remember { mutableStateOf<String?>(null) }
+    var transferJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var transferMove by remember { mutableStateOf(false) }
     var toast by remember { mutableStateOf("") }
     var previewFile by remember { mutableStateOf<DocumentFile?>(null) }
@@ -159,46 +163,54 @@ fun FileManagerScreen(
         }
     }
     val destinationPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        val source = transferSource
-        if (uri != null && source != null) {
+        val sources = transferSources
+        if (uri != null && sources.isNotEmpty()) {
             runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION) }
-            scope.launch {
+            transferJob = scope.launch {
+                var completed = 0
+                var failed = 0
                 try {
-                    withContext(Dispatchers.IO) {
-                        val destination = DocumentFile.fromTreeUri(context, uri) ?: error("Cannot open destination folder.")
-                        val original = source.name ?: "file"
-                        var targetName = original
-                        var suffix = 1
-                        while (destination.findFile(targetName) != null) {
-                            val dot = original.lastIndexOf('.')
-                            targetName = if (dot > 0) "${original.substring(0, dot)} ($suffix)${original.substring(dot)}" else "$original ($suffix)"
-                            suffix++
-                        }
-                        val target = destination.createFile(source.type ?: "application/octet-stream", targetName)
-                            ?: error("Could not create the destination file.")
+                    val destination = withContext(Dispatchers.IO) { DocumentFile.fromTreeUri(context, uri) ?: error("Cannot open destination folder.") }
+                    for (source in sources) {
+                        transferProgress = "Processing ${completed + failed + 1} of ${sources.size}: ${source.name ?: "file"}"
                         try {
-                            context.contentResolver.openInputStream(source.uri)?.use { input ->
-                                context.contentResolver.openOutputStream(target.uri, "w")?.use { output -> input.copyTo(output) }
-                                    ?: error("Could not write the destination file.")
-                            } ?: error("Could not read the source file.")
-                            if (transferMove && !source.delete()) error("Copied, but Android could not delete the original.")
-                        } catch (e: Exception) {
-                            target.delete()
-                            throw e
-                        }
+                            withContext(Dispatchers.IO) {
+                                val original = source.name ?: "file"
+                                var targetName = original
+                                var suffix = 1
+                                while (destination.findFile(targetName) != null) {
+                                    val dot = original.lastIndexOf('.')
+                                    targetName = if (dot > 0) "${original.substring(0, dot)} ($suffix)${original.substring(dot)}" else "$original ($suffix)"
+                                    suffix++
+                                }
+                                val target = destination.createFile(source.type ?: "application/octet-stream", targetName) ?: error("Could not create $targetName")
+                                try {
+                                    context.contentResolver.openInputStream(source.uri)?.use { input ->
+                                        context.contentResolver.openOutputStream(target.uri, "w")?.use { output -> input.copyTo(output) } ?: error("Could not write $targetName")
+                                    } ?: error("Could not read ${source.name}")
+                                    if (transferMove && !source.delete()) error("Copied ${source.name}, but could not remove its original")
+                                } catch (e: Exception) {
+                                    target.delete()
+                                    throw e
+                                }
+                            }
+                            completed++
+                        } catch (_: Exception) { failed++ }
                     }
-                    toast = if (transferMove) "File moved" else "File copied"
+                    toast = "$completed copied/moved" + if (failed > 0) " · $failed failed" else ""
                     reload()
-                } catch (e: Exception) {
-                    toast = e.message ?: "Transfer failed"
                 } finally {
-                    transferSource = null
+                    transferProgress = null
+                    transferSources = emptyList()
                     transferMove = false
+                    selectedUris.clear()
+                    transferJob = null
                 }
             }
         } else {
-            transferSource = null
+            transferSources = emptyList()
             transferMove = false
+            selectedUris.clear()
         }
     }
 
@@ -451,8 +463,8 @@ fun FileManagerScreen(
                     }
                     TextButton(onClick = { itemMenu = null; busyFiles = true; scope.launch { try { val result = withContext(Dispatchers.IO) { compressToZip(context, file, current) }; toast = "Created ${result.name}"; reload() } catch (e: Exception) { toast = e.message ?: "ZIP creation failed" } finally { busyFiles = false } } }, modifier = Modifier.fillMaxWidth()) { Text("Compress to ZIP", modifier = Modifier.fillMaxWidth()) }
                     if (!file.isDirectory) {
-                        TextButton(onClick = { itemMenu = null; transferSource = file; transferMove = false; destinationPicker.launch(null) }, modifier = Modifier.fillMaxWidth()) { Text("Copy to…", modifier = Modifier.fillMaxWidth()) }
-                        TextButton(onClick = { itemMenu = null; transferSource = file; transferMove = true; destinationPicker.launch(null) }, modifier = Modifier.fillMaxWidth()) { Text("Move to…", modifier = Modifier.fillMaxWidth()) }
+                        TextButton(onClick = { itemMenu = null; transferSources = listOf(file); transferMove = false; destinationPicker.launch(null) }, modifier = Modifier.fillMaxWidth()) { Text("Copy to…", modifier = Modifier.fillMaxWidth()) }
+                        TextButton(onClick = { itemMenu = null; transferSources = listOf(file); transferMove = true; destinationPicker.launch(null) }, modifier = Modifier.fillMaxWidth()) { Text("Move to…", modifier = Modifier.fillMaxWidth()) }
                     }
                     TextButton(onClick = { itemMenu = null; renameTarget = file; renameName = file.name.orEmpty() }, modifier = Modifier.fillMaxWidth()) { Text("Rename", modifier = Modifier.fillMaxWidth()) }
                     TextButton(onClick = { itemMenu = null; detailsTarget = file }, modifier = Modifier.fillMaxWidth()) { Text("Details", modifier = Modifier.fillMaxWidth()) }
