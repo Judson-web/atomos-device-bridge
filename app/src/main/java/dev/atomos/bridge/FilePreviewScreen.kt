@@ -100,10 +100,6 @@ fun FilePreviewScreen(file: DocumentFile, onBack: () -> Unit) {
         onDispose { (animatedDrawable as? AnimatedImageDrawable)?.stop() }
     }
 
-    DisposableEffect(bitmap) {
-        onDispose { bitmap?.let { if (!it.isRecycled) it.recycle() } }
-    }
-
     LaunchedEffect(file.uri) {
         if (mediaFile) {
             loading = false
@@ -170,7 +166,6 @@ fun FilePreviewScreen(file: DocumentFile, onBack: () -> Unit) {
         } catch (e: CancellationException) {
             throw e
         } catch (e: OutOfMemoryError) {
-            bitmap?.let { if (!it.isRecycled) it.recycle() }
             bitmap = null
             animatedDrawable = null
             previewError = "This image is too large or complex to decode safely on this device. Try a smaller copy."
