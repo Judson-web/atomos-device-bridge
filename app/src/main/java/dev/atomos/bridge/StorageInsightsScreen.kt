@@ -15,7 +15,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 
-private val StorageStorageViolet = androidx.compose.ui.graphics.Color(0xFF9B8CFF)
+private val StorageViolet = androidx.compose.ui.graphics.Color(0xFF9B8CFF)
 private val StorageSurface = androidx.compose.ui.graphics.Color(0xFF151A27)
 
 private data class StorageReport(
