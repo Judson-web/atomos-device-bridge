@@ -85,7 +85,7 @@ fun StorageInsightsScreen() {
         item {
             Card(colors = CardDefaults.cardColors(containerColor = StorageSurface), shape = RoundedCornerShape(22.dp)) {
                 Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("INTERNAL STORAGE", color = Violet, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    Text("INTERNAL STORAGE", color = StorageViolet, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                     if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
                     report?.let { r ->
                         Text(android.text.format.Formatter.formatFileSize(context, r.total - r.free) + " used", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
@@ -101,7 +101,7 @@ fun StorageInsightsScreen() {
         report?.let { r ->
             item { Text("Category footprint", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold) }
             item {
-                Card(colors = CardDefaults.cardColors(containerColor = SurfaceDark)) {
+                Card(colors = CardDefaults.cardColors(containerColor = StorageSurface)) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         listOf("Images" to r.images, "Videos" to r.videos, "Audio" to r.audio, "Archives" to r.archives, "Packages" to r.packages).forEach { (label, bytes) ->
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -115,10 +115,10 @@ fun StorageInsightsScreen() {
             item { Text("Largest files found", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold) }
             items(r.largest.size) { index ->
                 val (name, size) = r.largest[index]
-                Card(colors = CardDefaults.cardColors(containerColor = SurfaceDark)) {
+                Card(colors = CardDefaults.cardColors(containerColor = StorageSurface)) {
                     Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(name, modifier = Modifier.weight(1f), maxLines = 1)
-                        Text(android.text.format.Formatter.formatFileSize(context, size), color = Violet)
+                        Text(android.text.format.Formatter.formatFileSize(context, size), color = StorageViolet)
                     }
                 }
             }
