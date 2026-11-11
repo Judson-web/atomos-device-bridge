@@ -15,6 +15,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 
+private val StorageStorageViolet = androidx.compose.ui.graphics.Color(0xFF9B8CFF)
+private val StorageSurface = androidx.compose.ui.graphics.Color(0xFF151A27)
+
 private data class StorageReport(
     val total: Long, val free: Long, val files: Int, val folders: Int,
     val images: Long, val videos: Long, val audio: Long, val archives: Long,
@@ -80,7 +83,7 @@ fun StorageInsightsScreen() {
     LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(vertical = 18.dp)) {
         item { Text("Storage", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
         item {
-            Card(colors = CardDefaults.cardColors(containerColor = SurfaceDark), shape = RoundedCornerShape(22.dp)) {
+            Card(colors = CardDefaults.cardColors(containerColor = StorageSurface), shape = RoundedCornerShape(22.dp)) {
                 Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("INTERNAL STORAGE", color = Violet, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                     if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
