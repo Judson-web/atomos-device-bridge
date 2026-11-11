@@ -169,8 +169,15 @@ fun FilePreviewScreen(file: DocumentFile, onBack: () -> Unit) {
             }
         } catch (e: CancellationException) {
             throw e
+        } catch (e: OutOfMemoryError) {
+            bitmap?.let { if (!it.isRecycled) it.recycle() }
+            bitmap = null
+            animatedDrawable = null
+            previewError = "This image is too large or complex to decode safely on this device. Try a smaller copy."
+            android.util.Log.e("AtomosImage", "Image decode exhausted app memory for $uri", e)
         } catch (e: Exception) {
             previewError = e.message ?: "Cannot preview file."
+            android.util.Log.e("AtomosImage", "Image preview failed for $uri", e)
         } finally {
             loading = false
         }
@@ -574,6 +581,25 @@ private fun ImageViewer(file: DocumentFile, bitmap: Bitmap, onBack: () -> Unit) 
 
 private const val MAX_SVG_SOURCE_BYTES = 16L * 1024L * 1024L
 private const val MAX_SVG_DIMENSION = 8192
+private const val MIN_IMAGE_DECODE_PIXELS = 1L * 1024L * 1024L
+private const val MAX_IMAGE_DECODE_PIXELS = 4L * 1024L * 1024L
+private const val MAX_ANIMATED_DECODE_PIXELS = 1L * 1024L * 1024L
+
+/**
+ * Keep the decoded preview comfortably below the app heap limit. The previous
+ * 16 MP ceiling could require 64 MB for a single ARGB bitmap before Compose,
+ * decoder scratch buffers, and animation frames were accounted for.
+ */
+private fun imageDecodePixelBudget(context: android.content.Context, animated: Boolean = false): Long {
+    val memoryClassMb = runCatching {
+        (context.getSystemService(android.content.Context.ACTIVITY_SERVICE) as ActivityManager).memoryClass
+    }.getOrDefault(128)
+    val heapFraction = if (animated) 128L else 64L
+    val deviceBudget = memoryClassMb.toLong() * 1024L * 1024L / heapFraction / 4L
+    val ceiling = if (animated) MAX_ANIMATED_DECODE_PIXELS else MAX_IMAGE_DECODE_PIXELS
+    val floor = if (animated) 256L * 1024L else MIN_IMAGE_DECODE_PIXELS
+    return deviceBudget.coerceIn(floor, ceiling)
+}
 
 private fun decodeSvgBitmap(context: android.content.Context, uri: Uri): Bitmap? {
     val bytes = context.contentResolver.openInputStream(uri)?.use { input ->
@@ -593,8 +619,7 @@ private fun decodeSvgBitmap(context: android.content.Context, uri: Uri): Bitmap?
     val viewBox = svg.documentViewBox
     val width = svg.documentWidth.takeIf { it.isFinite() && it > 0f } ?: viewBox?.width()?.takeIf { it.isFinite() && it > 0f } ?: 1024f
     val height = svg.documentHeight.takeIf { it.isFinite() && it > 0f } ?: viewBox?.height()?.takeIf { it.isFinite() && it > 0f } ?: 1024f
-    val memoryClassMb = (context.getSystemService(android.content.Context.ACTIVITY_SERVICE) as ActivityManager).memoryClass
-    val maxPixels = (memoryClassMb.toLong() * 1024L * 1024L / 32L).coerceIn(4L * 1024L * 1024L, 16L * 1024L * 1024L)
+    val maxPixels = imageDecodePixelBudget(context)
     val scale = minOf(1.0, kotlin.math.sqrt(maxPixels.toDouble() / (width.toDouble() * height.toDouble())))
     val outWidth = (width * scale).roundToInt().coerceIn(1, MAX_SVG_DIMENSION)
     val outHeight = (height * scale).roundToInt().coerceIn(1, MAX_SVG_DIMENSION)
@@ -616,8 +641,7 @@ private fun decodeAnimatedImage(context: android.content.Context, uri: Uri): Dra
         val width = info.size.width
         val height = info.size.height
         require(width > 0 && height > 0) { "Invalid animated image dimensions." }
-        val memoryClassMb = (context.getSystemService(android.content.Context.ACTIVITY_SERVICE) as ActivityManager).memoryClass
-        val maxPixels = (memoryClassMb.toLong() * 1024L * 1024L / 32L).coerceIn(4L * 1024L * 1024L, 16L * 1024L * 1024L)
+        val maxPixels = imageDecodePixelBudget(context, animated = true)
         val scale = minOf(1.0, kotlin.math.sqrt(maxPixels.toDouble() / (width.toLong() * height.toLong())))
         if (scale < 1.0) decoder.setTargetSize((width * scale).roundToInt().coerceAtLeast(1), (height * scale).roundToInt().coerceAtLeast(1))
         decoder.allocator = android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE
@@ -673,21 +697,25 @@ private fun AnimatedImageViewer(file: DocumentFile, drawable: Drawable, onBack: 
 
 private fun decodePreviewBitmap(context: android.content.Context, uri: Uri): Bitmap? {
     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-        runCatching {
+        try {
             val source = android.graphics.ImageDecoder.createSource(context.contentResolver, uri)
             return android.graphics.ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
                 val width = info.size.width
                 val height = info.size.height
                 require(width > 0 && height > 0) { "Invalid image dimensions." }
-                val memoryClassMb = (context.getSystemService(android.content.Context.ACTIVITY_SERVICE) as ActivityManager).memoryClass
-                // Adapt preview resolution to heap size and cap decoded bitmap memory.
-                val maxPixels = (memoryClassMb.toLong() * 1024L * 1024L / 32L).coerceIn(4L * 1024L * 1024L, 16L * 1024L * 1024L)
+                // Bound a single preview bitmap to at most 4 MP; full-resolution
+                // tiled viewing will be handled separately from this safe preview.
+                val maxPixels = imageDecodePixelBudget(context)
                 val scale = minOf(1.0, kotlin.math.sqrt(maxPixels.toDouble() / (width.toLong() * height.toLong())))
                 if (scale < 1.0) decoder.setTargetSize((width * scale).roundToInt().coerceAtLeast(1), (height * scale).roundToInt().coerceAtLeast(1))
                 decoder.allocator = android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE
                 decoder.isMutableRequired = false
             }
-        }.onFailure { android.util.Log.w("AtomosImage", "ImageDecoder failed for $uri; trying BitmapFactory", it) }
+        } catch (error: OutOfMemoryError) {
+            throw error
+        } catch (error: Exception) {
+            android.util.Log.w("AtomosImage", "ImageDecoder failed for $uri; trying BitmapFactory", error)
+        }
     }
     val orientation = runCatching {
         context.contentResolver.openInputStream(uri)?.use { ExifInterface(it).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL) }
@@ -697,11 +725,11 @@ private fun decodePreviewBitmap(context: android.content.Context, uri: Uri): Bit
     context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
         ?: error("Cannot read image.")
     if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-    val memoryClassMb = (context.getSystemService(android.content.Context.ACTIVITY_SERVICE) as ActivityManager).memoryClass
-    val maxPixels = (memoryClassMb.toLong() * 1024L * 1024L / 32L).coerceIn(4L * 1024L * 1024L, 16L * 1024L * 1024L)
-    val scale = kotlin.math.sqrt(maxPixels.toDouble() / (bounds.outWidth.toLong() * bounds.outHeight.toLong())).coerceAtMost(1.0)
-    val desiredSample = (1.0 / scale).toInt().coerceAtLeast(1)
-    val sampleSize = Integer.highestOneBit(desiredSample)
+    val maxPixels = imageDecodePixelBudget(context)
+    val sourcePixels = bounds.outWidth.toLong() * bounds.outHeight.toLong()
+    val scale = kotlin.math.sqrt(maxPixels.toDouble() / sourcePixels).coerceAtMost(1.0)
+    val desiredSample = kotlin.math.ceil(1.0 / scale).toInt().coerceAtLeast(1)
+    val sampleSize = Integer.highestOneBit(desiredSample).let { if (it < desiredSample) it shl 1 else it }.coerceAtLeast(1)
     val options = BitmapFactory.Options().apply { inSampleSize = sampleSize; inPreferredConfig = Bitmap.Config.ARGB_8888 }
     val decoded = context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) } ?: return null
     return orientBitmap(decoded, orientation)
