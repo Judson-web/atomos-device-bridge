@@ -76,10 +76,10 @@ fun FileManagerScreen(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     var searchOpen by remember { mutableStateOf(false) }
     var search by remember { mutableStateOf("") }
-    var grid by remember { mutableStateOf(false) }
-    var showHidden by remember { mutableStateOf(false) }
-    var sortBy by remember { mutableStateOf("Name") }
-    var category by remember { mutableStateOf("All files") }
+    var grid by remember { mutableStateOf(store.get("fm_grid") == "true") }
+    var showHidden by remember { mutableStateOf(store.get("fm_show_hidden") == "true") }
+    var sortBy by remember { mutableStateOf(store.get("fm_sort")?.takeIf { it in setOf("Name", "Size", "Modified") } ?: "Name") }
+    var category by remember { mutableStateOf(store.get("fm_category")?.takeIf { it in setOf("All files", "Images", "Videos", "Audio", "Documents", "APKs") } ?: "All files") }
     var menuOpen by remember { mutableStateOf(false) }
     var itemMenu by remember { mutableStateOf<DocumentFile?>(null) }
     var createDialog by remember { mutableStateOf(false) }
@@ -94,6 +94,11 @@ fun FileManagerScreen(
     var busyFiles by remember { mutableStateOf(false) }
     var reloadVersion by remember { mutableIntStateOf(0) }
     var deleteTarget by remember { mutableStateOf<DocumentFile?>(null) }
+
+    LaunchedEffect(grid) { store.put("fm_grid", grid.toString()) }
+    LaunchedEffect(showHidden) { store.put("fm_show_hidden", showHidden.toString()) }
+    LaunchedEffect(sortBy) { store.put("fm_sort", sortBy) }
+    LaunchedEffect(category) { store.put("fm_category", category) }
 
     BackHandler(enabled = path.isNotEmpty() || searchOpen) {
         when {
