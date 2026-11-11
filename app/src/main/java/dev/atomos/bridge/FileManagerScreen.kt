@@ -435,12 +435,12 @@ fun FileManagerScreen(
                     }
                     grid -> LazyVerticalGrid(columns = GridCells.Adaptive(minSize = 156.dp), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         gridItems(filtered, key = { it.uri.toString() }) { file ->
-                            FileGridTile(file, onClick = { if (file.isDirectory) path.add(file) else openFile(file) }, onMenu = { itemMenu = file })
+                            FileGridTile(file, selected = file.uri.toString() in selectedUris, onClick = { if (selectedUris.isNotEmpty()) { val key = file.uri.toString(); if (key in selectedUris) selectedUris.remove(key) else selectedUris.add(key) } else if (file.isDirectory) path.add(file) else openFile(file) }, onLongClick = { val key = file.uri.toString(); if (key !in selectedUris) selectedUris.add(key) }, onMenu = { itemMenu = file })
                         }
                     }
                     else -> LazyColumn(contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         items(filtered, key = { it.uri.toString() }) { file ->
-                            FileListRow(file, onClick = { if (file.isDirectory) path.add(file) else openFile(file) }, onMenu = { itemMenu = file })
+                            FileListRow(file, selected = file.uri.toString() in selectedUris, onClick = { if (selectedUris.isNotEmpty()) { val key = file.uri.toString(); if (key in selectedUris) selectedUris.remove(key) else selectedUris.add(key) } else if (file.isDirectory) path.add(file) else openFile(file) }, onLongClick = { val key = file.uri.toString(); if (key !in selectedUris) selectedUris.add(key) }, onMenu = { itemMenu = file })
                         }
                     }
                 }
@@ -449,7 +449,7 @@ fun FileManagerScreen(
         }
     }
 
-    if (busyFiles) AlertDialog(onDismissRequest = {}, title = { Text("Processing archive") }, text = { Row(verticalAlignment = Alignment.CenterVertically) { CircularProgressIndicator(); Spacer(Modifier.width(12.dp)); Text("Working locally…") } }, confirmButton = {})
+    transferProgress?.let { progress -> AlertDialog(onDismissRequest = {}, title = { Text("File transfer") }, text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { LinearProgressIndicator(Modifier.fillMaxWidth()); Text(progress) } }, confirmButton = { TextButton(onClick = { transferJob?.cancel() }) { Text("Cancel queue") } }) }\n    if (busyFiles) AlertDialog(onDismissRequest = {}, title = { Text("Processing archive") }, text = { Row(verticalAlignment = Alignment.CenterVertically) { CircularProgressIndicator(); Spacer(Modifier.width(12.dp)); Text("Working locally…") } }, confirmButton = {})
     previewFile?.let { file -> FilePreviewScreen(file, onBack = { previewFile = null }) }
     itemMenu?.let { file ->
         AlertDialog(
@@ -539,12 +539,12 @@ fun FileManagerScreen(
 }
 
 @Composable
-private fun FileListRow(file: DocumentFile, onClick: () -> Unit, onMenu: () -> Unit) {
+private fun FileListRow(file: DocumentFile, selected: Boolean, onClick: () -> Unit, onLongClick: () -> Unit, onMenu: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 11.dp),
+        Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick).padding(horizontal = 12.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(fileGlyph(file), fontSize = 24.sp, color = FileViolet, modifier = Modifier.width(42.dp))
+        Text(if (selected) "✓" else fileGlyph(file), fontSize = 24.sp, color = FileViolet, modifier = Modifier.width(42.dp))
         Column(Modifier.weight(1f)) {
             Text(file.name ?: "Unnamed", fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(if (file.isDirectory) "Folder" else "${android.text.format.Formatter.formatShortFileSize(androidx.compose.ui.platform.LocalContext.current, file.length())}  ·  ${file.type ?: "File"}", color = FileMuted, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -555,11 +555,11 @@ private fun FileListRow(file: DocumentFile, onClick: () -> Unit, onMenu: () -> U
 }
 
 @Composable
-private fun FileGridTile(file: DocumentFile, onClick: () -> Unit, onMenu: () -> Unit) {
-    Card(onClick = onClick, colors = CardDefaults.cardColors(containerColor = FileSurface), shape = RoundedCornerShape(18.dp)) {
+private fun FileGridTile(file: DocumentFile, selected: Boolean, onClick: () -> Unit, onLongClick: () -> Unit, onMenu: () -> Unit) {
+    Card(modifier = Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick), colors = CardDefaults.cardColors(containerColor = if (selected) FileViolet.copy(alpha = .18f) else FileSurface), shape = RoundedCornerShape(18.dp)) {
         Column(Modifier.fillMaxWidth().height(132.dp).padding(12.dp), verticalArrangement = Arrangement.SpaceBetween) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(fileGlyph(file), fontSize = 28.sp, color = FileViolet)
+                Text(if (selected) "✓" else fileGlyph(file), fontSize = 28.sp, color = FileViolet)
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick = onMenu, modifier = Modifier.size(30.dp)) { Icon(Icons.Default.MoreVert, contentDescription = "File options", tint = FileMuted) }
             }
