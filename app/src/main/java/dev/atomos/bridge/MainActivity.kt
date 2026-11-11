@@ -209,7 +209,7 @@ private fun AtomosApp(store: SecureStore, activityScope: CoroutineScope) {
                 )
             } else Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 18.dp)) {
                 when (page) {
-                    "Home" -> HomePage(network, status, onNetwork = { page = "Network" }, onFiles = { page = "Files" }, onInstaller = { page = "Installer" }, onSpeed = { page = "Network" })
+                    "Home" -> HomePage(network, status, onNetwork = { page = "Network" }, onFiles = { page = "Files" }, onInstaller = { page = "Installer" }, onSpeed = { page = "Network" }, onStorage = { page = "Storage" })
                     "Network" -> NetworkPage(network, speedResult, speedBusy, speedProgress) {
                         if (!speedBusy) activityScope.launch {
                             speedBusy = true; speedProgress = 0f
@@ -229,7 +229,7 @@ private fun AtomosApp(store: SecureStore, activityScope: CoroutineScope) {
     }
 }
 
-@Composable private fun HomePage(n: NetworkSnapshot, status: String, onNetwork: () -> Unit, onFiles: () -> Unit, onInstaller: () -> Unit, onSpeed: () -> Unit) {
+@Composable private fun HomePage(n: NetworkSnapshot, status: String, onNetwork: () -> Unit, onFiles: () -> Unit, onInstaller: () -> Unit, onSpeed: () -> Unit, onStorage: () -> Unit) {
     LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 18.dp)) {
         item { Text("Your device, at a glance.", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
         item { Card(colors = CardDefaults.cardColors(containerColor = SurfaceDark), shape = RoundedCornerShape(24.dp)) {
@@ -245,7 +245,7 @@ private fun AtomosApp(store: SecureStore, activityScope: CoroutineScope) {
         } }
         item { UtilityCard("Network monitor", "Live connection, throughput, IP and speed test", "↗", onNetwork) }
         item { UtilityCard("File manager", "Browse folders, organize and inspect files", "▤", onFiles) }
-        item { UtilityCard("Storage insights", "See available space, file categories and large files", "◫", { /* navigation wired by host */ }) }
+        item { UtilityCard("Storage insights", "See available space, file categories and large files", "◫", onStorage) }
         item { UtilityCard("Package installer", "Install APK and split APK archives", "⬇", onInstaller) }
         item { Text("More utilities will appear here as independent tiles.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
     }
