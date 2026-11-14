@@ -138,7 +138,6 @@ private fun AtomosApp(
     }
     LaunchedEffect(callback) {
         val uri = callback ?: return@LaunchedEffect
-        clearCallback()
         authState = "checking"
         authLaunching = false
         val code = uri.getQueryParameter("code")
@@ -167,6 +166,7 @@ private fun AtomosApp(
             authError = e.message ?: "Please try again."
             status = "Authentication failed."
         }
+        clearCallback()
     }
     LaunchedEffect(access) {
         if (callback != null) return@LaunchedEffect
