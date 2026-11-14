@@ -41,11 +41,11 @@ jobs:
         run: |
           set -euo pipefail
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          if [[ ! -d "$ANDROID_HOME/platforms/android-37.0" || ! -d "$ANDROID_HOME/build-tools/37.0.0" ]]; then
+          if [[ ! -d "$ANDROID_HOME/platforms/android-37" || ! -d "$ANDROID_HOME/build-tools/37.0.0" ]]; then
             set +o pipefail
             yes | "$SDKMANAGER" --licenses >/dev/null
             set -o pipefail
-            "$SDKMANAGER" --channel=3 "platforms;android-37.0" "build-tools;37.0.0" "platform-tools"
+            "$SDKMANAGER" "platforms;android-37" "build-tools;37.0.0" "platform-tools"
           else
             echo "Android SDK 37.0 and Build Tools 37.0.0 already installed; skipping download."
           fi
@@ -78,6 +78,12 @@ jobs:
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$TOOLCHAIN/aarch64-linux-android24-clang"
           export CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER="$TOOLCHAIN/armv7a-linux-androideabi24-clang"
           export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$TOOLCHAIN/x86_64-linux-android24-clang"
+          export CC_aarch64_linux_android="$TOOLCHAIN/aarch64-linux-android24-clang"
+          export CC_armv7_linux_androideabi="$TOOLCHAIN/armv7a-linux-androideabi24-clang"
+          export CC_x86_64_linux_android="$TOOLCHAIN/x86_64-linux-android24-clang"
+          export AR_aarch64_linux_android="$TOOLCHAIN/llvm-ar"
+          export AR_armv7_linux_androideabi="$TOOLCHAIN/llvm-ar"
+          export AR_x86_64_linux_android="$TOOLCHAIN/llvm-ar"
 
           cargo build --locked --release --target aarch64-linux-android
           cargo build --locked --release --target armv7-linux-androideabi
