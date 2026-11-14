@@ -124,7 +124,39 @@ fun ConversationSetupScreen(
             }
             val initial = withContext(Dispatchers.IO) { api.encryptedMessages(conversationId) }
             consume(initial)
-            status = if (NativeMlsBridge.hasGroup(conversationId)) {
+
+            var deliveryWarning: String? = null
+            if (NativeMlsBridge.hasGroup(conversationId)) {
+                val pending = withContext(Dispatchers.IO) {
+                    NativeMlsBridge.pendingOutgoing(conversationId)
+                }
+                if (pending == null) {
+                    deliveryWarning = "Unsent messages could not be checked on this device."
+                } else {
+                    pending.forEach { queued ->
+                        try {
+                            api.sendMlsMessage(
+                                conversationId = conversationId,
+                                senderUserId = userId,
+                                senderDeviceId = deviceId,
+                                messageHex = queued.ciphertextHex,
+                                messageId = queued.messageId
+                            )
+                            check(withContext(Dispatchers.IO) {
+                                NativeMlsBridge.markMessageSent(conversationId, queued.messageId)
+                            }) { "Delivered message retry could not be finalized locally." }
+                        } catch (_: Exception) {
+                            deliveryWarning = "Some messages are waiting for delivery. Reopen this chat when online to retry."
+                        }
+                    }
+                    if (pending.isNotEmpty()) {
+                        val refreshed = withContext(Dispatchers.IO) { api.encryptedMessages(conversationId) }
+                        consume(refreshed)
+                    }
+                }
+            }
+
+            status = deliveryWarning ?: if (NativeMlsBridge.hasGroup(conversationId)) {
                 "MLS encryption active · experimental"
             } else {
                 "Waiting for secure group setup"
@@ -133,7 +165,7 @@ fun ConversationSetupScreen(
             api.observeMessages(conversationId).collect { rows ->
                 try {
                     consume(rows)
-                    status = if (NativeMlsBridge.hasGroup(conversationId)) {
+                    status = deliveryWarning ?: if (NativeMlsBridge.hasGroup(conversationId)) {
                         "MLS encryption active · experimental"
                     } else {
                         "Waiting for secure group setup"
