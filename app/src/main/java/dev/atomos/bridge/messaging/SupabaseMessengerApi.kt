@@ -1,4 +1,4 @@
-@file:OptIn(io.github.jan.supabase.SupabaseExperimental::class)
+@file:OptIn(io.github.jan.supabase.annotations.SupabaseExperimental::class)
 
 package dev.atomos.bridge.messaging
 
