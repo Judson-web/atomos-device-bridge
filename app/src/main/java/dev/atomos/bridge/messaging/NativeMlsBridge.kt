@@ -15,6 +15,20 @@ object NativeMlsBridge {
     @Volatile
     private var loaded = false
 
+    fun initializeStorageKey(key: ByteArray): Boolean = synchronized(this) {
+        if (key.size != 32) return false
+        if (!loadAttempted) {
+            loadAttempted = true
+            loaded = runCatching { System.loadLibrary("atomos_mls_bridge") }.isSuccess
+        }
+        if (!loaded) return false
+        runCatching { nativeInitializeStorageKey(key) }.getOrDefault(false)
+    }
+
+    fun clearStorageKey() = synchronized(this) {
+        if (loaded) runCatching { nativeClearStorageKey() }
+    }
+
     fun protocolVersionOrNull(): String? = synchronized(this) {
         if (!loadAttempted) {
             loadAttempted = true
@@ -25,4 +39,6 @@ object NativeMlsBridge {
     }
 
     private external fun nativeProtocolVersion(): String
+    private external fun nativeInitializeStorageKey(key: ByteArray): Boolean
+    private external fun nativeClearStorageKey()
 }
