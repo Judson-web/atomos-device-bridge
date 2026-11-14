@@ -294,6 +294,30 @@ pub extern "system" fn Java_dev_atomos_bridge_messaging_NativeMlsBridge_nativeCr
 }
 
 #[no_mangle]
+pub extern "system" fn Java_dev_atomos_bridge_messaging_NativeMlsBridge_nativePendingOutgoing(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    conversation_id: JString<'_>,
+) -> jstring {
+    let conversation_id: String = match env.get_string(&conversation_id) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let slot = engine_slot().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let Some(engine) = slot.as_ref() else {
+        return std::ptr::null_mut();
+    };
+    let result = match engine.pending_outgoing(&conversation_id) {
+        Ok(value) => value,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    match env.new_string(result.to_string()) {
+        Ok(value) => value.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
 pub extern "system" fn Java_dev_atomos_bridge_messaging_NativeMlsBridge_nativeCachedPlaintext(
     mut env: JNIEnv<'_>,
     _class: JClass<'_>,
