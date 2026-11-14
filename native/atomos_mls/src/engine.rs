@@ -89,12 +89,10 @@ impl AtomosMlsEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::{clear_storage_key, set_storage_key};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn encrypted_sqlite_provider_opens_and_runs_migrations() {
-        set_storage_key(&[0x29; 32]).expect("set test storage key");
         let unique = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("clock")
@@ -115,6 +113,5 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(format!("{path_string}-wal"));
         let _ = std::fs::remove_file(format!("{path_string}-shm"));
-        clear_storage_key();
     }
 }
