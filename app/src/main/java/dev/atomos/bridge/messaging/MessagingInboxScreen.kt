@@ -41,6 +41,9 @@ private val MessengerMuted = Color(0xFF9299AC)
  */
 @Composable
 fun MessagingInboxScreen(modifier: Modifier = Modifier) {
+    val nativeProtocolVersion = androidx.compose.runtime.remember {
+        NativeMlsBridge.protocolVersionOrNull()
+    }
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -149,6 +152,40 @@ fun MessagingInboxScreen(modifier: Modifier = Modifier) {
                 textAlign = TextAlign.Center,
                 lineHeight = 22.sp
             )
+        }
+
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF111521))
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    "NATIVE PROTOCOL RUNTIME",
+                    color = MessengerViolet,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.1.sp
+                )
+                Text(
+                    nativeProtocolVersion ?: "Native library not present in this build",
+                    color = Color(0xFFD8D9E2),
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Text(
+                    if (nativeProtocolVersion == null)
+                        "The secure messaging engine is unavailable. No messages can be sent."
+                    else
+                        "Runtime detected only. Key management and message encryption are not enabled yet.",
+                    color = MessengerMuted,
+                    style = MaterialTheme.typography.bodySmall,
+                    lineHeight = 18.sp
+                )
+            }
         }
 
         Card(
