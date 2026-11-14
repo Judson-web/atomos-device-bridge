@@ -84,9 +84,7 @@ fun PeopleDiscoveryScreen(
 
     LaunchedEffect(currentUserId) {
         try {
-            api.observeContactRequests().collect {
-                reloadContacts()
-            }
+            api.observeContactRequests().collect { reloadContacts() }
         } catch (e: Exception) {
             status = e.message ?: "Live contact updates are unavailable."
             reloadContacts()
@@ -94,11 +92,8 @@ fun PeopleDiscoveryScreen(
     }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MessengerPageBackground)
-            .verticalScroll(rememberScrollState())
-            .padding(20.dp),
+        modifier = Modifier.fillMaxSize().background(MessengerPageBackground)
+            .verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -106,19 +101,15 @@ fun PeopleDiscoveryScreen(
             Text("Find people by their Atomos username.", color = MessengerPageMuted, style = MaterialTheme.typography.bodyMedium)
         }
         Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(22.dp),
+            modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp),
             colors = CardDefaults.cardColors(containerColor = MessengerPageSurface)
         ) {
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("FIND SOMEONE", color = MessengerPageAccent, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                 OutlinedTextField(
-                    value = username,
-                    onValueChange = { username = it.take(33) },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Atomos username") },
-                    placeholder = { Text("e.g. judson_01") },
-                    singleLine = true
+                    value = username, onValueChange = { username = it.take(33) },
+                    modifier = Modifier.fillMaxWidth(), label = { Text("Atomos username") },
+                    placeholder = { Text("e.g. judson_01") }, singleLine = true
                 )
                 Button(
                     onClick = {
@@ -130,21 +121,15 @@ fun PeopleDiscoveryScreen(
                                 if (foundProfile == null) status = "No account found with that username."
                             } catch (e: Exception) {
                                 status = e.message ?: "Search failed."
-                            } finally {
-                                searching = false
-                            }
+                            } finally { searching = false }
                         }
                     },
-                    enabled = !searching && username.isNotBlank(),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(if (searching) "Searching…" else "Search username")
-                }
+                    enabled = !searching && username.isNotBlank(), modifier = Modifier.fillMaxWidth()
+                ) { Text(if (searching) "Searching…" else "Search username") }
                 foundProfile?.let { profile ->
                     if (profile.userId != currentUserId) {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -156,9 +141,7 @@ fun PeopleDiscoveryScreen(
                                     try {
                                         api.sendContactRequest(currentUserId, profile.userId)
                                         status = "Contact request sent to @${profile.username}."
-                                    } catch (e: Exception) {
-                                        status = e.message ?: "Unable to send request."
-                                    }
+                                    } catch (e: Exception) { status = e.message ?: "Unable to send request." }
                                 }
                             }) { Text("Add") }
                         }
@@ -169,14 +152,11 @@ fun PeopleDiscoveryScreen(
         }
 
         Text("CONTACT REQUESTS", color = MessengerPageAccent, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-        if (loading) {
-            CircularProgressIndicator(color = MessengerPageAccent)
-        } else if (incoming.isEmpty()) {
-            Text("No pending requests.", color = MessengerPageMuted, style = MaterialTheme.typography.bodySmall)
-        } else incoming.forEach { (request, profile) ->
+        if (loading) CircularProgressIndicator(color = MessengerPageAccent)
+        else if (incoming.isEmpty()) Text("No pending requests.", color = MessengerPageMuted, style = MaterialTheme.typography.bodySmall)
+        else incoming.forEach { (request, profile) ->
             Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp),
                 colors = CardDefaults.cardColors(containerColor = MessengerPageSurface)
             ) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -207,17 +187,14 @@ fun PeopleDiscoveryScreen(
         }
 
         Text("YOUR CONTACTS", color = MessengerPageAccent, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-        if (accepted.isEmpty()) {
-            Text("Accepted contacts will appear here.", color = MessengerPageMuted, style = MaterialTheme.typography.bodySmall)
-        } else accepted.forEach { (_, profile) ->
+        if (accepted.isEmpty()) Text("Accepted contacts will appear here.", color = MessengerPageMuted, style = MaterialTheme.typography.bodySmall)
+        else accepted.forEach { (_, profile) ->
             Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp),
                 colors = CardDefaults.cardColors(containerColor = MessengerPageSurface)
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Box(Modifier.size(40.dp).background(Color(0xFF25213F), CircleShape), contentAlignment = Alignment.Center) {
@@ -236,51 +213,33 @@ fun PeopleDiscoveryScreen(
                                     val claimed = api.claimConversationBootstrap(conversationId, currentDeviceId)
                                     if (claimed) {
                                         try {
-                                            val recipientPackages = api.consumeConversationKeyPackages(
-                                                conversationId,
-                                                profile.userId,
-                                                currentDeviceId
-                                            )
-                                            val ownOtherDevicePackages = api.consumeConversationKeyPackages(
-                                                conversationId,
-                                                currentUserId,
-                                                currentDeviceId
-                                            )
-                                            val packageHex = (recipientPackages + ownOtherDevicePackages)
-                                                .map { it.packageHex() }
+                                            val recipientPackages = api.consumeConversationKeyPackages(conversationId, profile.userId, currentDeviceId)
+                                            val ownOtherDevicePackages = api.consumeConversationKeyPackages(conversationId, currentUserId, currentDeviceId)
+                                            val packageHex = (recipientPackages + ownOtherDevicePackages).map { it.packageHex() }
                                             check(packageHex.isNotEmpty()) {
                                                 "No active MLS KeyPackages are available. Ask the other person to open Atomos and try again."
                                             }
                                             val group = withContext(Dispatchers.IO) {
-                                                NativeMlsBridge.createDirectGroup(
-                                                    conversationId,
-                                                    currentUserId,
-                                                    currentDeviceId,
-                                                    packageHex
-                                                )
+                                                NativeMlsBridge.createDirectGroup(conversationId, currentUserId, currentDeviceId, packageHex)
                                             } ?: error("The native MLS group could not be created.")
                                             if (group.welcomeHex != null) {
-                                                val messageId = UUID.randomUUID().toString()
+                                                val welcomeMessageId = UUID.randomUUID().toString()
                                                 api.sendMlsMessage(
-                                                    conversationId,
-                                                    currentUserId,
-                                                    currentDeviceId,
-                                                    messageId,
-                                                    group.welcomeHex
+                                                    conversationId = conversationId,
+                                                    senderUserId = currentUserId,
+                                                    senderDeviceId = currentDeviceId,
+                                                    messageHex = group.welcomeHex,
+                                                    messageId = welcomeMessageId
                                                 )
-                                                api.completeConversationBootstrap(
-                                                    conversationId,
-                                                    currentDeviceId,
-                                                    messageId
-                                                )
-                                                withContext(Dispatchers.IO) {
+                                                api.completeConversationBootstrap(conversationId, currentDeviceId, welcomeMessageId)
+                                                check(withContext(Dispatchers.IO) {
                                                     NativeMlsBridge.markWelcomePublished(conversationId)
-                                                }
+                                                }) { "Welcome was published, but local retry state could not be finalized." }
+                                            } else {
+                                                check(group.alreadyInitialized) { "MLS group setup did not produce a Welcome message." }
                                             }
                                         } catch (bootstrapError: Exception) {
-                                            runCatching {
-                                                api.releaseConversationBootstrap(conversationId, currentDeviceId)
-                                            }
+                                            runCatching { api.releaseConversationBootstrap(conversationId, currentDeviceId) }
                                             throw bootstrapError
                                         }
                                     }
@@ -300,10 +259,7 @@ fun PeopleDiscoveryScreen(
 @Composable
 fun SharedMediaScreen(onBrowseLocalFiles: () -> Unit) {
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MessengerPageBackground)
-            .padding(20.dp),
+        modifier = Modifier.fillMaxSize().background(MessengerPageBackground).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -311,42 +267,31 @@ fun SharedMediaScreen(onBrowseLocalFiles: () -> Unit) {
             Text("Shared attachments and your local media tools.", color = MessengerPageMuted, style = MaterialTheme.typography.bodyMedium)
         }
         Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(22.dp),
+            modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp),
             colors = CardDefaults.cardColors(containerColor = MessengerPageSurface)
         ) {
             Column(
-                modifier = Modifier.fillMaxWidth().padding(20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Box(
-                    modifier = Modifier.size(66.dp).background(Color(0xFF25213F), CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
+                Box(Modifier.size(66.dp).background(Color(0xFF25213F, ), CircleShape), contentAlignment = Alignment.Center) {
                     Text("▧", color = MessengerPageAccent, fontSize = 30.sp)
                 }
                 Text("No shared media yet", color = Color.White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(
                     "Conversation media will appear here after encrypted attachment transfer is enabled. Your existing viewers and file tools remain available below.",
-                    color = MessengerPageMuted,
-                    style = MaterialTheme.typography.bodySmall,
-                    textAlign = TextAlign.Center,
-                    lineHeight = 20.sp
+                    color = MessengerPageMuted, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center, lineHeight = 20.sp
                 )
             }
         }
         Text("LOCAL TOOLS", color = MessengerPageAccent, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
         Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(18.dp),
+            modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp),
             colors = CardDefaults.cardColors(containerColor = MessengerPageSurface)
         ) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("File manager · Image viewer · Video & audio player · Text editor · ZIP tools · Package inspection", color = Color.White, style = MaterialTheme.typography.bodyMedium, lineHeight = 22.sp)
-                Button(onClick = onBrowseLocalFiles, modifier = Modifier.fillMaxWidth()) {
-                    Text("Browse local files")
-                }
+                Button(onClick = onBrowseLocalFiles, modifier = Modifier.fillMaxWidth()) { Text("Browse local files") }
             }
         }
     }
