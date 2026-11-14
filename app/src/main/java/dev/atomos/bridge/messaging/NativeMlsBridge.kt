@@ -14,6 +14,7 @@ import org.json.JSONObject
  */
 data class DirectGroupResult(val welcomeHex: String?, val alreadyInitialized: Boolean)
 data class IncomingMessageResult(val kind: String, val plaintext: ByteArray?)
+data class PendingOutgoingMessage(val messageId: String, val ciphertextHex: String)
 
 data class DeviceEnrollmentBundle(
     val credentialHex: String,
@@ -98,6 +99,20 @@ object NativeMlsBridge {
         }.getOrNull()
     }
 
+    fun pendingOutgoing(conversationId: String): List<PendingOutgoingMessage>? = synchronized(this) {
+        if (!loaded) return null
+        runCatching {
+            val rows = JSONArray(nativePendingOutgoing(conversationId) ?: return null)
+            List(rows.length()) { index ->
+                val row = rows.getJSONObject(index)
+                PendingOutgoingMessage(
+                    messageId = row.getString("message_id"),
+                    ciphertextHex = row.getString("ciphertext_hex")
+                )
+            }
+        }.getOrNull()
+    }
+
     fun cachedPlaintext(conversationId: String, messageId: String): ByteArray? = synchronized(this) {
         if (!loaded) return null
         runCatching { nativeCachedPlaintext(conversationId, messageId) }.getOrNull()
@@ -149,6 +164,7 @@ object NativeMlsBridge {
     private external fun nativeMarkWelcomePublished(conversationId: String): Boolean
     private external fun nativeProcessIncomingMessage(conversationId: String, messageId: String, messageHex: String): String
     private external fun nativeCreateApplicationMessage(conversationId: String, deviceId: String, messageId: String, plaintext: ByteArray): String
+    private external fun nativePendingOutgoing(conversationId: String): String?
     private external fun nativeCachedPlaintext(conversationId: String, messageId: String): ByteArray
     private external fun nativeMarkMessageSent(conversationId: String, messageId: String): Boolean
     private external fun nativeCloseDatabase()
