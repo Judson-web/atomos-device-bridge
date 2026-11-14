@@ -223,9 +223,45 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          debug_apk="$(find app/build/outputs/apk/debug -type f -name '*.apk' -print -quit)"
+          test -n "$debug_apk"
           test "$(find app/build/outputs/apk/debug -type f -name '*.apk' | wc -l)" -eq 1
+
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/37.0.0"
+          APKSIGNER="$BUILD_TOOLS/apksigner"
+          AAPT="$BUILD_TOOLS/aapt"
+          ZIPALIGN="$BUILD_TOOLS/zipalign"
+          test -x "$APKSIGNER"
+          test -x "$AAPT"
+          test -x "$ZIPALIGN"
+
+          "$APKSIGNER" verify --verbose "$debug_apk"
+          "$ZIPALIGN" -c -v 4 "$debug_apk"
+
           if [[ "$GITHUB_REF" == refs/tags/v* || ("$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF" == "refs/heads/main") ]]; then
             test "$(find app/build/outputs/apk/release -type f -name '*.apk' | wc -l)" -eq 1
+            release_apk="$(find app/build/outputs/apk/release -type f -name '*.apk' -print -quit)"
+
+            # Verify the APK signature, alignment and actual manifest identity
+            # before allowing it to be attached to a GitHub Release.
+            signature_report="$("$APKSIGNER" verify --verbose --print-certs "$release_apk" 2>&1)"
+            printf '%s\\n' "$signature_report"
+            "$ZIPALIGN" -c -v 4 "$release_apk"
+            badging="$("$AAPT" dump badging "$release_apk")"
+            grep -F "package: name='dev.atomos.bridge'" <<<"$badging"
+            grep -F "sdkVersion:'29'" <<<"$badging"
+            sha256sum "$release_apk"
+
+            {
+              echo "### Release APK verification"
+              echo 'Signature verification: passed'
+              printf '%s\\n' "$signature_report"
+              echo 'Package: dev.atomos.bridge'
+              echo 'Minimum SDK: 29'
+              echo 'Alignment: verified (4-byte)'
+              echo 'APK SHA-256:'
+              sha256sum "$release_apk"
+            } >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Upload debug APK artifact
