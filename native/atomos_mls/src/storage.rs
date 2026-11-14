@@ -25,6 +25,9 @@ const STORAGE_AAD: &[u8] = b"Atomos OpenMLS storage v1";
 
 static STORAGE_KEY: OnceLock<RwLock<Option<Zeroizing<[u8; 32]>>>> = OnceLock::new();
 
+#[cfg(test)]
+pub(crate) static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn key_slot() -> &'static RwLock<Option<Zeroizing<[u8; 32]>>> {
     STORAGE_KEY.get_or_init(|| RwLock::new(None))
 }
@@ -146,9 +149,7 @@ impl Codec for EncryptedCodec {
 mod tests {
     use super::*;
     use serde::{Deserialize, Serialize};
-    use std::sync::Mutex;
 
-    pub(crate) static TEST_LOCK: Mutex<()> = Mutex::new(());
 
     #[derive(Debug, PartialEq, Serialize, Deserialize)]
     struct StoredState {
