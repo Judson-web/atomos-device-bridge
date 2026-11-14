@@ -291,10 +291,13 @@ impl AtomosMlsEngine {
         &mut self,
         conversation_id: &str,
         device_id: &str,
+        message_id: &str,
         plaintext: &[u8],
     ) -> EngineResult<Vec<u8>> {
-        if plaintext.is_empty() || plaintext.len() > 64 * 1024 {
-            return Err("message size is outside the supported limit".into());
+        if plaintext.is_empty() || plaintext.len() > 64 * 1024
+            || message_id.is_empty() || message_id.len() > 128
+        {
+            return Err("message size or identifier is outside the supported limit".into());
         }
         let group_key = format!("conversation-group:{conversation_id}");
         let group_id_bytes = self.metadata_get::<Vec<u8>>(&group_key)?
@@ -302,23 +305,68 @@ impl AtomosMlsEngine {
         let group_id = GroupId::tls_deserialize_exact(group_id_bytes.as_slice())?;
         let signature_keys = self.load_signing_key(device_id)?;
 
-        let provider = AtomosProvider::new(&self.crypto, &mut self.connection);
-        let mut group = MlsGroup::load(provider.storage(), &group_id)?
-            .ok_or("MLS group state is missing from encrypted local storage")?;
-        let message = group.create_message(&provider, &signature_keys, plaintext)?;
-        Ok(message.to_bytes()?)
+        let message_bytes = {
+            let provider = AtomosProvider::new(&self.crypto, &mut self.connection);
+            let mut group = MlsGroup::load(provider.storage(), &group_id)?
+                .ok_or("MLS group state is missing from encrypted local storage")?;
+            let message = group.create_message(&provider, &signature_keys, plaintext)?;
+            message.to_bytes()?
+        };
+
+        self.metadata_put(
+            &format!("local-message:{conversation_id}:{message_id}"),
+            &plaintext.to_vec(),
+        )?;
+        self.metadata_put(
+            &format!("pending-outgoing:{conversation_id}:{message_id}"),
+            &message_bytes,
+        )?;
+        Ok(message_bytes)
+    }
+
+    pub fn cached_plaintext(
+        &self,
+        conversation_id: &str,
+        message_id: &str,
+    ) -> EngineResult<Option<Vec<u8>>> {
+        self.metadata_get(&format!("local-message:{conversation_id}:{message_id}"))
+    }
+
+    pub fn mark_message_sent(
+        &mut self,
+        conversation_id: &str,
+        message_id: &str,
+    ) -> EngineResult<()> {
+        self.metadata_delete(&format!("pending-outgoing:{conversation_id}:{message_id}"))
     }
 
     /// Processes an MLS Welcome, Commit, Proposal or Application message. Plaintext
-    /// is returned only for authenticated MLS application messages.
+    /// is cached in the encrypted local metadata store so history can be rendered
+    /// again after restart without replaying an already-consumed MLS message.
     pub fn process_incoming_message(
         &mut self,
         conversation_id: &str,
+        message_id: &str,
         message_bytes: &[u8],
     ) -> EngineResult<serde_json::Value> {
-        if message_bytes.is_empty() || message_bytes.len() > 512 * 1024 {
-            return Err("invalid MLS message size".into());
+        if message_id.is_empty() || message_id.len() > 128
+            || message_bytes.is_empty() || message_bytes.len() > 512 * 1024
+        {
+            return Err("invalid MLS message size or identifier".into());
         }
+
+        let cache_key = format!("local-message:{conversation_id}:{message_id}");
+        let processed_key = format!("processed-message:{conversation_id}:{message_id}");
+        if let Some(plaintext) = self.metadata_get::<Vec<u8>>(&cache_key)? {
+            return Ok(serde_json::json!({
+                "kind": "application",
+                "plaintext_base64": BASE64.encode(plaintext)
+            }));
+        }
+        if self.metadata_get::<bool>(&processed_key)?.unwrap_or(false) {
+            return Ok(serde_json::json!({ "kind": "duplicate" }));
+        }
+
         let group_key = format!("conversation-group:{conversation_id}");
         let message_in = MlsMessageIn::tls_deserialize_exact(message_bytes)?;
 
@@ -328,30 +376,38 @@ impl AtomosMlsEngine {
                 if self.metadata_get::<Vec<u8>>(&group_key)?.is_some()
                     && self.metadata_get::<bool>(&published_key)?.unwrap_or(false)
                 {
+                    self.metadata_put(&processed_key, &true)?;
                     return Ok(serde_json::json!({ "kind": "duplicate_welcome" }));
                 }
-                let provider = AtomosProvider::new(&self.crypto, &mut self.connection);
-                let staged = match StagedWelcome::new_from_welcome(
-                    &provider,
-                    &MlsGroupJoinConfig::default(),
-                    welcome,
-                    None,
-                ) {
-                    Ok(staged) => staged,
-                    Err(WelcomeError::NoMatchingKeyPackage | WelcomeError::JoinerSecretNotFound) => {
-                        return Ok(serde_json::json!({ "kind": "not_for_device" }));
+
+                let staged_result = {
+                    let provider = AtomosProvider::new(&self.crypto, &mut self.connection);
+                    match StagedWelcome::new_from_welcome(
+                        &provider,
+                        &MlsGroupJoinConfig::default(),
+                        welcome,
+                        None,
+                    ) {
+                        Ok(staged) => {
+                            let group = staged.into_group(&provider)?;
+                            Some(group.group_id().tls_serialize_detached()?)
+                        }
+                        Err(WelcomeError::NoMatchingKeyPackage | WelcomeError::JoinerSecretNotFound) => None,
+                        Err(WelcomeError::GroupAlreadyExists) => None,
+                        Err(error) => return Err(Box::new(error)),
                     }
-                    Err(WelcomeError::GroupAlreadyExists) => {
-                        return Ok(serde_json::json!({ "kind": "duplicate_welcome" }));
-                    }
-                    Err(error) => return Err(Box::new(error)),
                 };
-                let group = staged.into_group(&provider)?;
-                let group_id = group.group_id().tls_serialize_detached()?;
-                self.metadata_put(&group_key, &group_id)?;
-                self.metadata_put(&published_key, &true)?;
-                self.metadata_delete(&format!("conversation-welcome:{conversation_id}"))?;
-                Ok(serde_json::json!({ "kind": "welcome" }))
+
+                if let Some(group_id) = staged_result {
+                    self.metadata_put(&group_key, &group_id)?;
+                    self.metadata_put(&published_key, &true)?;
+                    self.metadata_delete(&format!("conversation-welcome:{conversation_id}"))?;
+                    self.metadata_put(&processed_key, &true)?;
+                    Ok(serde_json::json!({ "kind": "welcome" }))
+                } else {
+                    self.metadata_put(&processed_key, &true)?;
+                    Ok(serde_json::json!({ "kind": "not_for_device" }))
+                }
             }
             _ => {
                 let group_id_bytes = self.metadata_get::<Vec<u8>>(&group_key)?
@@ -359,41 +415,43 @@ impl AtomosMlsEngine {
                 let group_id = GroupId::tls_deserialize_exact(group_id_bytes.as_slice())?;
                 let message_in = MlsMessageIn::tls_deserialize_exact(message_bytes)?;
                 let protocol_message = message_in.try_into_protocol_message()?;
-                let provider = AtomosProvider::new(&self.crypto, &mut self.connection);
-                let mut group = MlsGroup::load(&provider, &group_id)?
-                    .ok_or("MLS group state is missing from encrypted local storage")?;
-                let processed = group.process_message(&provider, protocol_message)?;
 
-                match processed.into_content() {
-                    ProcessedMessageContent::ApplicationMessage(application) => {
-                        Ok(serde_json::json!({
-                            "kind": "application",
-                            "plaintext_base64": BASE64.encode(application.into_bytes())
-                        }))
+                let outcome = {
+                    let provider = AtomosProvider::new(&self.crypto, &mut self.connection);
+                    let mut group = MlsGroup::load(provider.storage(), &group_id)?
+                        .ok_or("MLS group state is missing from encrypted local storage")?;
+                    let processed = group.process_message(&provider, protocol_message)?;
+
+                    match processed.into_content() {
+                        ProcessedMessageContent::ApplicationMessage(application) => {
+                            Some(("application", application.into_bytes()))
+                        }
+                        ProcessedMessageContent::StagedCommitMessage(staged) => {
+                            group.merge_staged_commit(&provider, *staged)?;
+                            None
+                        }
+                        ProcessedMessageContent::ProposalMessage(proposal) => {
+                            group.store_pending_proposal(provider.storage(), *proposal)?;
+                            None
+                        }
+                        _ => None,
                     }
-                    ProcessedMessageContent::StagedCommitMessage(staged) => {
-                        group.merge_staged_commit(&provider, *staged)?;
-                        Ok(serde_json::json!({ "kind": "commit" }))
-                    }
-                    ProcessedMessageContent::ProposalMessage(proposal) => {
-                        group.store_pending_proposal(provider.storage(), *proposal)?;
-                        Ok(serde_json::json!({ "kind": "proposal" }))
-                    }
-                    _ => Ok(serde_json::json!({ "kind": "control" })),
+                };
+
+                self.metadata_put(&processed_key, &true)?;
+                if let Some(("application", plaintext)) = outcome {
+                    self.metadata_put(&cache_key, &plaintext)?;
+                    Ok(serde_json::json!({
+                        "kind": "application",
+                        "plaintext_base64": BASE64.encode(plaintext)
+                    }))
+                } else {
+                    Ok(serde_json::json!({ "kind": "control" }))
                 }
             }
         }
     }
 
-    /// Runs an operation with the durable provider. The provider borrows the SQLite
-    /// connection for the operation, preventing accidental concurrent use of it.
-    pub fn with_provider<T>(
-        &mut self,
-        operation: impl FnOnce(&AtomosProvider<'_>) -> EngineResult<T>,
-    ) -> EngineResult<T> {
-        let provider = AtomosProvider::new(&self.crypto, &mut self.connection);
-        operation(&provider)
-    }
 }
 
 #[cfg(test)]
