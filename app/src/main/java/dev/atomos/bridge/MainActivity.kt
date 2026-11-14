@@ -31,6 +31,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
+import dev.atomos.bridge.messaging.MessagingInboxScreen
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.math.roundToInt
@@ -174,8 +175,8 @@ private fun AtomosApp(store: SecureStore, activityScope: CoroutineScope) {
             topBar = {
                 if (page != "Files") CenterAlignedTopAppBar(
                     title = { Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("ATOMOS", fontWeight = FontWeight.Black, letterSpacing = 3.sp, fontSize = 16.sp)
-                        Text(if (network.connected) "${network.transport} · ↓ ${formatRate(network.downloadBps)} · ↑ ${formatRate(network.uploadBps)}" else "No internet connection", style = MaterialTheme.typography.labelSmall, color = if (network.connected) Violet else MaterialTheme.colorScheme.error)
+                        Text(if (page == "Chats") "MESSAGES" else "ATOMOS", fontWeight = FontWeight.Black, letterSpacing = 3.sp, fontSize = 16.sp)
+                        Text(if (page == "Chats") "SECURE MESSAGING SETUP" else if (network.connected) "${network.transport} · ↓ ${formatRate(network.downloadBps)} · ↑ ${formatRate(network.uploadBps)}" else "No internet connection", style = MaterialTheme.typography.labelSmall, color = if (page == "Chats" || network.connected) Violet else MaterialTheme.colorScheme.error)
                     } },
                     actions = { Text(if (network.validated) "●" else "○", color = if (network.validated) Violet else MaterialTheme.colorScheme.error, modifier = Modifier.padding(end = 18.dp)) },
                     colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Background, titleContentColor = MaterialTheme.colorScheme.onBackground)
@@ -209,7 +210,8 @@ private fun AtomosApp(store: SecureStore, activityScope: CoroutineScope) {
                 )
             } else Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 18.dp)) {
                 when (page) {
-                    "Home" -> HomePage(network, status, onNetwork = { page = "Network" }, onFiles = { page = "Files" }, onInstaller = { page = "Installer" }, onSpeed = { page = "Network" }, onStorage = { page = "Storage" })
+                    "Home" -> HomePage(network, status, onNetwork = { page = "Network" }, onFiles = { page = "Files" }, onInstaller = { page = "Installer" }, onSpeed = { page = "Network" }, onStorage = { page = "Storage" }, onChats = { page = "Chats" })
+                    "Chats" -> MessagingInboxScreen(Modifier.weight(1f))
                     "Network" -> NetworkPage(network, speedResult, speedBusy, speedProgress) {
                         if (!speedBusy) activityScope.launch {
                             speedBusy = true; speedProgress = 0f
@@ -229,7 +231,7 @@ private fun AtomosApp(store: SecureStore, activityScope: CoroutineScope) {
     }
 }
 
-@Composable private fun HomePage(n: NetworkSnapshot, status: String, onNetwork: () -> Unit, onFiles: () -> Unit, onInstaller: () -> Unit, onSpeed: () -> Unit, onStorage: () -> Unit) {
+@Composable private fun HomePage(n: NetworkSnapshot, status: String, onNetwork: () -> Unit, onFiles: () -> Unit, onInstaller: () -> Unit, onSpeed: () -> Unit, onStorage: () -> Unit, onChats: () -> Unit) {
     LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 18.dp)) {
         item { Text("Your device, at a glance.", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
         item { Card(colors = CardDefaults.cardColors(containerColor = SurfaceDark), shape = RoundedCornerShape(24.dp)) {
@@ -243,6 +245,7 @@ private fun AtomosApp(store: SecureStore, activityScope: CoroutineScope) {
                 Text("Live device connectivity and throughput", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } }
+        item { UtilityCard("Messages", "Private conversations and encrypted media sharing", "✉", onChats) }
         item { UtilityCard("Network monitor", "Live connection, throughput, IP and speed test", "↗", onNetwork) }
         item { UtilityCard("File manager", "Browse folders, organize and inspect files", "▤", onFiles) }
         item { UtilityCard("Storage insights", "See available space, file categories and large files", "◫", onStorage) }
