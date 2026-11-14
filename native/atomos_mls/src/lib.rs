@@ -165,6 +165,27 @@ pub extern "system" fn Java_dev_atomos_bridge_messaging_NativeMlsBridge_nativeCr
 }
 
 #[no_mangle]
+pub extern "system" fn Java_dev_atomos_bridge_messaging_NativeMlsBridge_nativeHasGroup(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    conversation_id: JString<'_>,
+) -> jboolean {
+    let conversation_id: String = match env.get_string(&conversation_id) {
+        Ok(value) => value.into(),
+        Err(_) => return JNI_FALSE,
+    };
+    let slot = engine_slot().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let Some(engine) = slot.as_ref() else {
+        return JNI_FALSE;
+    };
+    if engine.has_group(&conversation_id).unwrap_or(false) {
+        JNI_TRUE
+    } else {
+        JNI_FALSE
+    }
+}
+
+#[no_mangle]
 pub extern "system" fn Java_dev_atomos_bridge_messaging_NativeMlsBridge_nativeMarkWelcomePublished(
     mut env: JNIEnv<'_>,
     _class: JClass<'_>,
