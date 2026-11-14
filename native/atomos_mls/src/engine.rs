@@ -475,13 +475,27 @@ mod tests {
         ));
         let path_string = path.to_string_lossy().into_owned();
 
+        let _guard = crate::storage::tests::TEST_LOCK.lock().expect("storage test lock");
+        crate::storage::set_storage_key(&[0x24; 32]).expect("install test storage key");
         let mut engine = AtomosMlsEngine::open(&path_string)
             .expect("encrypted SQLite storage migrations should succeed");
-        engine
-            .with_provider(|_| Ok::<(), Box<dyn Error + Send + Sync>>(()))
-            .expect("provider should be available");
+
+        let sentinel = "private MLS state must never be stored as plaintext";
+        engine.metadata_put("test:encrypted-state", &sentinel)
+            .expect("write encrypted metadata");
+        let restored: Option<String> = engine.metadata_get("test:encrypted-state")
+            .expect("read encrypted metadata");
+        assert_eq!(restored.as_deref(), Some(sentinel));
+
+        let raw: Vec<u8> = engine.connection.query_row(
+            "SELECT value FROM atomos_mls_metadata WHERE key = ?1",
+            ["test:encrypted-state"],
+            |row| row.get(0),
+        ).expect("read raw metadata envelope");
+        assert!(!raw.windows(sentinel.len()).any(|part| part == sentinel.as_bytes()));
 
         drop(engine);
+        crate::storage::clear_storage_key();
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(format!("{path_string}-wal"));
         let _ = std::fs::remove_file(format!("{path_string}-shm"));
