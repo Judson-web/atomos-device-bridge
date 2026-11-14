@@ -6,7 +6,7 @@ Atomos is evolving into a privacy-first Android messaging app while retaining an
 
 Atomos will provide private and group conversations, media and document sharing, profiles, notifications and a unified attachment library. Its existing file manager, image/video/audio viewers, text editor, ZIP tools, HTML viewer, package inspection/installer and network diagnostics remain part of the product as messaging capabilities.
 
-The current application is still the local-first utility baseline. Cloud messaging, authentication and end-to-end encryption are not yet implemented by this direction document. Do not treat the app as an E2EE messenger until the protocol, key lifecycle, encrypted attachment path, backend authorization and security release gates are complete.
+An experimental messaging foundation is now present on this branch: Discord PKCE sign-in, profile discovery and contact requests, direct-conversation bootstrap, ciphertext transport, a native OpenMLS bridge, and encrypted local MLS state. The Rust protocol test exercises a real two-client Welcome and application-message round trip. This is an integration milestone, not a production-secure messenger. Group membership changes, encrypted attachments, device lifecycle and recovery, durable push delivery, Android device interoperability, and independent security review remain incomplete. Do not treat the app as production-verified E2EE until every release gate in the architecture documents passes.
 
 ## Existing Android capabilities to preserve
 
