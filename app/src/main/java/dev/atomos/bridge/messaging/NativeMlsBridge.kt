@@ -25,6 +25,15 @@ object NativeMlsBridge {
         runCatching { nativeInitializeStorageKey(key) }.getOrDefault(false)
     }
 
+    fun openDatabase(path: String): Boolean = synchronized(this) {
+        if (!loaded) return false
+        runCatching { nativeOpenDatabase(path) }.getOrDefault(false)
+    }
+
+    fun closeDatabase() = synchronized(this) {
+        if (loaded) runCatching { nativeCloseDatabase() }
+    }
+
     fun clearStorageKey() = synchronized(this) {
         if (loaded) runCatching { nativeClearStorageKey() }
     }
@@ -40,5 +49,7 @@ object NativeMlsBridge {
 
     private external fun nativeProtocolVersion(): String
     private external fun nativeInitializeStorageKey(key: ByteArray): Boolean
+    private external fun nativeOpenDatabase(path: String): Boolean
+    private external fun nativeCloseDatabase()
     private external fun nativeClearStorageKey()
 }
