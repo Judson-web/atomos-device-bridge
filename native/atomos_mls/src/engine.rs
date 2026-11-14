@@ -27,10 +27,10 @@ impl<'a> AtomosProvider<'a> {
     }
 }
 
-impl OpenMlsProvider for AtomosProvider<'_> {
+impl<'a> OpenMlsProvider for AtomosProvider<'a> {
     type CryptoProvider = RustCrypto;
     type RandProvider = RustCrypto;
-    type StorageProvider = SqliteStorageProvider<'_, EncryptedCodec>;
+    type StorageProvider = SqliteStorageProvider<'a, EncryptedCodec>;
 
     fn storage(&self) -> &Self::StorageProvider {
         &self.storage
