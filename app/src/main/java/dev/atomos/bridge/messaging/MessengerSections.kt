@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.UUID
 
 private val MessengerPageBackground = Color(0xFF090B12)
 private val MessengerPageSurface = Color(0xFF151A27)
@@ -258,10 +259,12 @@ fun PeopleDiscoveryScreen(
                                                 )
                                             } ?: error("The native MLS group could not be created.")
                                             if (group.welcomeHex != null) {
-                                                val messageId = api.sendMlsMessage(
+                                                val messageId = UUID.randomUUID().toString()
+                                                api.sendMlsMessage(
                                                     conversationId,
                                                     currentUserId,
                                                     currentDeviceId,
+                                                    messageId,
                                                     group.welcomeHex
                                                 )
                                                 api.completeConversationBootstrap(
