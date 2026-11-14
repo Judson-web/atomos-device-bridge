@@ -77,6 +77,22 @@ data class ConsumedKeyPackage(
 }
 
 @Serializable
+private data class MessengerMessageInsert(
+    @SerialName("conversation_id") val conversationId: String,
+    @SerialName("sender_user_id") val senderUserId: String,
+    @SerialName("sender_device_id") val senderDeviceId: String,
+    @SerialName("protocol_version") val protocolVersion: Int,
+    val ciphertext: String
+)
+
+@Serializable
+private data class MessengerReceiptUpsert(
+    @SerialName("message_id") val messageId: String,
+    @SerialName("user_id") val userId: String,
+    @SerialName("read_at") val readAt: String
+)
+
+@Serializable
 private data class DeviceUpsert(
     val id: String,
     @SerialName("user_id") val userId: String,
@@ -345,6 +361,40 @@ class SupabaseMessengerApi {
                 order("updated_at", Order.DESCENDING)
             }
             .decodeList()
+    }
+
+    fun observeMessages(conversationId: String): Flow<List<MessengerCiphertextRow>> {
+        return client.from("messages").selectAsFlow(MessengerCiphertextRow::id) {
+            filter { eq("conversation_id", conversationId) }
+        }
+    }
+
+    suspend fun sendMlsMessage(
+        conversationId: String,
+        senderUserId: String,
+        senderDeviceId: String,
+        messageHex: String
+    ) {
+        client.from("messages").insert(
+            MessengerMessageInsert(
+                conversationId = conversationId,
+                senderUserId = senderUserId,
+                senderDeviceId = senderDeviceId,
+                protocolVersion = 1,
+                ciphertext = bytea(messageHex)
+            )
+        )
+    }
+
+    suspend fun markMessageRead(messageId: String, userId: String) {
+        client.from("message_receipts").upsert(
+            MessengerReceiptUpsert(
+                messageId = messageId,
+                userId = userId,
+                readAt = java.time.Instant.now().toString()
+            ),
+            onConflict = "message_id,user_id"
+        )
     }
 
     suspend fun encryptedMessages(conversationId: String, limit: Int = 100): List<MessengerCiphertextRow> {
