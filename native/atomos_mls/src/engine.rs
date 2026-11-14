@@ -9,7 +9,7 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use openmls::prelude::{
     Ciphersuite, CredentialWithKey, GroupId, KeyPackage, KeyPackageIn,
     MlsGroup, MlsGroupJoinConfig, MlsMessageBodyIn, MlsMessageIn,
-    ProcessedMessageContent, ProtocolVersion, StagedWelcome,
+    ProcessedMessageContent, ProtocolVersion, StagedWelcome, WelcomeError,
 };
 use openmls_basic_credential::{BasicCredential, SignatureKeyPair};
 use openmls_rust_crypto::RustCrypto;
@@ -328,12 +328,18 @@ impl AtomosMlsEngine {
                     return Ok(serde_json::json!({ "kind": "duplicate_welcome" }));
                 }
                 let provider = AtomosProvider::new(&self.crypto, &mut self.connection);
-                let staged = StagedWelcome::new_from_welcome(
+                let staged = match StagedWelcome::new_from_welcome(
                     &provider,
                     &MlsGroupJoinConfig::default(),
                     welcome,
                     None,
-                )?;
+                ) {
+                    Ok(staged) => staged,
+                    Err(WelcomeError::NoMatchingKeyPackage | WelcomeError::JoinerSecretNotFound) => {
+                        return Ok(serde_json::json!({ "kind": "not_for_device" }));
+                    }
+                    Err(error) => return Err(Box::new(error)),
+                };
                 let group = staged.into_group(&provider)?;
                 let group_id = group.group_id().tls_serialize_detached()?;
                 self.metadata_put(&group_key, &group_id)?;
