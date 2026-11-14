@@ -179,7 +179,13 @@ fun ConversationSetupScreen(
                                     conversationId, deviceId, messageId, text.toByteArray(Charsets.UTF_8)
                                 )
                             } ?: error("MLS encryption failed. The secure group may need to be initialized again.")
-                            api.sendMlsMessage(conversationId, userId, deviceId, messageId, ciphertext)
+                            api.sendMlsMessage(
+                                conversationId = conversationId,
+                                senderUserId = userId,
+                                senderDeviceId = deviceId,
+                                messageHex = ciphertext,
+                                messageId = messageId
+                            )
                             withContext(Dispatchers.IO) {
                                 check(NativeMlsBridge.markMessageSent(conversationId, messageId)) {
                                     "Message sent, but local retry state could not be cleared."
