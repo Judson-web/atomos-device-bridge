@@ -522,6 +522,16 @@ mod tests {
             .expect("read encrypted metadata");
         assert_eq!(restored.as_deref(), Some(sentinel));
 
+        engine.metadata_put("pending-outgoing:conv-1:msg-1", &vec![0xa1, 0xb2, 0xc3])
+            .expect("persist retry ciphertext");
+        engine.metadata_put("pending-outgoing:conv-10:msg-other", &vec![0xff])
+            .expect("persist another conversation retry");
+        let pending = engine.pending_outgoing("conv-1")
+            .expect("read pending ciphertext without decrypting message content");
+        assert_eq!(pending.as_array().map(Vec::len), Some(1));
+        assert_eq!(pending[0]["message_id"], "msg-1");
+        assert_eq!(pending[0]["ciphertext_hex"], "a1b2c3");
+
         let raw: Vec<u8> = engine.connection.query_row(
             "SELECT value FROM atomos_mls_metadata WHERE key = ?1",
             ["test:encrypted-state"],
