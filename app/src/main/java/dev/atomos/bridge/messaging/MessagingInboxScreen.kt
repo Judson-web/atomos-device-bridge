@@ -29,6 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -64,8 +65,9 @@ fun MessagingInboxScreen(
     var loadError by remember { mutableStateOf<String?>(null) }
     var search by remember { mutableStateOf("") }
     var selectedFilter by remember { mutableStateOf("All") }
+    var refreshNonce by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(api, userId) {
+    LaunchedEffect(api, userId, refreshNonce) {
         loading = true
         loadError = null
         try {
@@ -118,9 +120,9 @@ fun MessagingInboxScreen(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            StatusBubble("Y", "Your status", true, Modifier.weight(1f), onPeople)
-            StatusBubble("◎", "New group", false, Modifier.weight(1f), onPeople)
-            StatusBubble("⌕", "Find people", false, Modifier.weight(1f), onPeople)
+            StatusBubble("+", "New chat", true, Modifier.weight(1f), onPeople)
+            StatusBubble("◎", "Contacts", false, Modifier.weight(1f), onPeople)
+            StatusBubble("⌕", "Requests", false, Modifier.weight(1f), onPeople)
         }
 
         OutlinedTextField(
@@ -169,6 +171,7 @@ fun MessagingInboxScreen(
                     Button(onClick = {
                         loading = true
                         loadError = null
+                        refreshNonce++
                     }) { Text("Try again") }
                 }
             }
