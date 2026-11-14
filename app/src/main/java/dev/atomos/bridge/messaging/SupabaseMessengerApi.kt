@@ -293,7 +293,7 @@ class SupabaseMessengerApi {
         client.from("key_packages").delete {
             filter {
                 eq("device_id", deviceId)
-                io.github.jan.supabase.postgrest.query.filter.isNull("consumed_at")
+                exact("consumed_at", null)
             }
         }
         val expiry = java.time.Instant.now().plusSeconds(7 * 24 * 60 * 60).toString()
