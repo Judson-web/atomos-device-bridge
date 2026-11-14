@@ -1,9 +1,9 @@
 //! Atomos native MLS bridge.
 //!
 //! OpenMLS owns the MLS protocol and cryptographic operations. This JNI layer
-//! exposes runtime and key-lifecycle plumbing only; it is not a custom protocol.
-//! The next stage adds a durable OpenMLS group/session engine over the encrypted
-//! SQLite storage provider before enabling message composition.
+//! exposes the durable group/session engine over encrypted SQLite storage,
+//! including KeyPackage enrollment, group bootstrap and application messages.
+//! It is not a custom protocol or a substitute for independent security review.
 
 pub mod engine;
 pub mod storage;
