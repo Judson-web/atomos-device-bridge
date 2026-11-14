@@ -64,6 +64,13 @@ fn two_clients_join_and_exchange_only_mls_application_data() {
         .merge_pending_commit(&alice_provider)
         .expect("Alice should merge the add-member commit");
 
+    let welcome_bytes = welcome.to_bytes().expect("Welcome message should serialize");
+    let welcome_in = MlsMessageIn::tls_deserialize_exact(welcome_bytes.as_slice())
+        .expect("serialized Welcome should deserialize");
+    let welcome = match welcome_in.extract() {
+        MlsMessageBodyIn::Welcome(welcome) => welcome,
+        _ => panic!("Expected an MLS Welcome message"),
+    };
     let staged_welcome = StagedWelcome::new_from_welcome(
         &bob_provider,
         &MlsGroupJoinConfig::default(),
@@ -82,8 +89,11 @@ fn two_clients_join_and_exchange_only_mls_application_data() {
     let encrypted = alice_group
         .create_message(&alice_provider, &alice_signature_keys, plaintext)
         .expect("Alice should create an MLS application message");
-    let protocol_message = encrypted
-        .into_protocol_message()
+    let encrypted_bytes = encrypted.to_bytes().expect("MLS application message should serialize");
+    let encrypted_in = MlsMessageIn::tls_deserialize_exact(encrypted_bytes.as_slice())
+        .expect("serialized application message should deserialize");
+    let protocol_message = encrypted_in
+        .try_into_protocol_message()
         .expect("Application message should be a protocol message");
     let processed = bob_group
         .process_message(&bob_provider, protocol_message)
