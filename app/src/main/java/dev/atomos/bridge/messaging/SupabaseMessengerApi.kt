@@ -63,6 +63,20 @@ data class MessengerCiphertextRow(
 )
 
 @Serializable
+data class ConsumedKeyPackage(
+    @SerialName("package_id") val packageId: String,
+    @SerialName("user_id") val userId: String,
+    @SerialName("device_id") val deviceId: String,
+    @SerialName("package") val packageBytes: String,
+    @SerialName("cipher_suite") val cipherSuite: String
+) {
+    fun packageHex(): String {
+        val prefix = String(charArrayOf(92.toChar(), 'x'))
+        return packageBytes.removePrefix(prefix).lowercase()
+    }
+}
+
+@Serializable
 private data class DeviceUpsert(
     val id: String,
     @SerialName("user_id") val userId: String,
@@ -173,6 +187,24 @@ class SupabaseMessengerApi {
             }
             .decodeList<MessengerContactRequest>()
         return (sent + received).distinctBy { it.id }
+    }
+
+    suspend fun consumeConversationKeyPackages(
+        conversationId: String,
+        targetUserId: String,
+        excludeDeviceId: String,
+        cipherSuite: String = "MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519"
+    ): List<ConsumedKeyPackage> {
+        val response = client.postgrest.rpc(
+            function = "consume_conversation_key_packages",
+            parameters = buildJsonObject {
+                put("p_conversation_id", conversationId)
+                put("p_target_user_id", targetUserId)
+                put("p_exclude_device_id", excludeDeviceId)
+                put("p_cipher_suite", cipherSuite)
+            }
+        )
+        return response.decodeList()
     }
 
     suspend fun deviceExists(deviceId: String): Boolean {
