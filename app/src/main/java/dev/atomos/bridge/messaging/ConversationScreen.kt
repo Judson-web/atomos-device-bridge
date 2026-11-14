@@ -103,10 +103,10 @@ fun ConversationSetupScreen(
                             row.createdAt.substringAfter("T", "").take(5)
                         )
                     )
+                    if (row.senderUserId != userId) {
+                        runCatching { api.markMessageRead(row.id, userId) }
+                    }
                 }
-            }
-            if (row.senderUserId != userId) {
-                runCatching { api.markMessageRead(row.id, userId) }
             }
         }
     }
