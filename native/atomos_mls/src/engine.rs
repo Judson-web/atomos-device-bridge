@@ -279,6 +279,10 @@ impl AtomosMlsEngine {
         }))
     }
 
+    pub fn has_group(&self, conversation_id: &str) -> EngineResult<bool> {
+        Ok(self.metadata_get::<Vec<u8>>(&format!("conversation-group:{conversation_id}"))?.is_some())
+    }
+
     pub fn mark_welcome_published(&mut self, conversation_id: &str) -> EngineResult<()> {
         let published_key = format!("conversation-welcome-published:{conversation_id}");
         let welcome_key = format!("conversation-welcome:{conversation_id}");
