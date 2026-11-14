@@ -34,6 +34,8 @@ import java.util.UUID
 import dev.atomos.bridge.messaging.MessagingInboxScreen
 import dev.atomos.bridge.messaging.PeopleDiscoveryScreen
 import dev.atomos.bridge.messaging.SharedMediaScreen
+import dev.atomos.bridge.messaging.ConversationSetupScreen
+import dev.atomos.bridge.messaging.SupabaseMessengerApi
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.math.roundToInt
@@ -111,6 +113,8 @@ private fun AtomosApp(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val auth = remember { SupabaseAuth() }
+    val messengerApi = remember { SupabaseMessengerApi() }
+    var activeConversationId by remember { mutableStateOf<String?>(null) }
     var user by remember { mutableStateOf<AuthUser?>(null) }
     var access by remember { mutableStateOf(store.get("access")) }
     var authState by remember { mutableStateOf(if (access.isNullOrBlank()) "signed_out" else "checking") }
@@ -179,6 +183,7 @@ private fun AtomosApp(
         authState = "checking"
         try {
             user = withContext(Dispatchers.IO) { auth.user(token) }
+            withContext(Dispatchers.IO) { messengerApi.importSession(token, store.get("refresh").orEmpty()) }
             authState = "authenticated"
             authError = null
         } catch (_: Exception) {
@@ -189,6 +194,7 @@ private fun AtomosApp(
                     val profile = withContext(Dispatchers.IO) { auth.user(tokens.access) }
                     store.put("access", tokens.access)
                     store.put("refresh", tokens.refresh)
+                    withContext(Dispatchers.IO) { messengerApi.importSession(tokens.access, tokens.refresh) }
                     access = tokens.access
                     user = profile
                     authState = "authenticated"
@@ -224,6 +230,7 @@ private fun AtomosApp(
         }
     }
     val signOut: () -> Unit = {
+        scope.launch { messengerApi.signOut() }
         store.remove("access", "refresh", "oauth_verifier")
         access = null
         user = null
@@ -347,8 +354,20 @@ private fun AtomosApp(
             } else Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 18.dp)) {
                 when (page) {
                     "Home" -> HomePage(network, status, onNetwork = { page = "Network" }, onFiles = { page = "Files" }, onInstaller = { page = "Installer" }, onSpeed = { page = "Network" }, onStorage = { page = "Storage" }, onChats = { page = "Chats" })
-                    "Chats" -> MessagingInboxScreen(Modifier.weight(1f))
-                    "People" -> PeopleDiscoveryScreen()
+                    "Chats" -> MessagingInboxScreen(
+                        api = messengerApi,
+                        userId = user!!.id,
+                        onPeople = { page = "People" },
+                        onOpenConversation = { id -> activeConversationId = id; page = "Conversation" }
+                    )
+                    "Conversation" -> activeConversationId?.let { id ->
+                        ConversationSetupScreen(conversationId = id, onBack = { page = "Chats" })
+                    }
+                    "People" -> PeopleDiscoveryScreen(
+                        api = messengerApi,
+                        currentUserId = user!!.id,
+                        onConversationCreated = { id -> activeConversationId = id; page = "Conversation" }
+                    )
                     "Media" -> SharedMediaScreen(onBrowseLocalFiles = { page = "Files" })
                     "Profile" -> ProfileScreen(user!!, network.ipAddress, status, signOut)
                     "Tools" -> HomePage(network, status, onNetwork = { page = "Network" }, onFiles = { page = "Files" }, onInstaller = { page = "Installer" }, onSpeed = { page = "Network" }, onStorage = { page = "Storage" }, onChats = { page = "Chats" })
