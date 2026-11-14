@@ -73,7 +73,10 @@ private data class DeviceUpsert(
 )
 
 @Serializable
-private data class DeviceIdRow(val id: String)
+private data class DeviceIdRow(
+    val id: String,
+    @SerialName("revoked_at") val revokedAt: String? = null
+)
 
 @Serializable
 private data class KeyPackageIdRow(val id: String)
@@ -176,10 +179,21 @@ class SupabaseMessengerApi {
         return client.from("devices")
             .select {
                 filter { eq("id", deviceId) }
-                limit(1)
+                limit(1L)
             }
             .decodeList<DeviceIdRow>()
             .isNotEmpty()
+    }
+
+    suspend fun deviceIsRevoked(deviceId: String): Boolean {
+        return client.from("devices")
+            .select {
+                filter { eq("id", deviceId) }
+                limit(1L)
+            }
+            .decodeList<DeviceIdRow>()
+            .firstOrNull()
+            ?.revokedAt != null
     }
 
     suspend fun hasActiveKeyPackage(deviceId: String): Boolean {
