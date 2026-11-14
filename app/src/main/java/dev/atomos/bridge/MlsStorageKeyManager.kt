@@ -1,6 +1,5 @@
 package dev.atomos.bridge
 
-import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -18,7 +17,6 @@ import javax.crypto.spec.GCMParameterSpec
  * The database key is passed to the native process only for engine initialization.
  */
 class MlsStorageKeyManager(
-    context: Context,
     private val secureStore: SecureStore,
     accountId: String
 ) {
@@ -46,6 +44,12 @@ class MlsStorageKeyManager(
     fun closeNative() {
         NativeMlsBridge.closeDatabase()
         NativeMlsBridge.clearStorageKey()
+    }
+
+    fun rotateDeviceId(): String {
+        val created = java.util.UUID.randomUUID().toString()
+        secureStore.put(deviceIdKey, created)
+        return created
     }
 
     fun deviceIdOrCreate(): String {
