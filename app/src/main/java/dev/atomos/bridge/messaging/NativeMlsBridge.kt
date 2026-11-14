@@ -1,5 +1,7 @@
 package dev.atomos.bridge.messaging
 
+import org.json.JSONObject
+
 /**
  * Optional JNI handshake for the pinned OpenMLS native library.
  *
@@ -8,6 +10,13 @@ package dev.atomos.bridge.messaging
  * Messaging must remain disabled until those protocol operations and persistence tests
  * are implemented and reviewed.
  */
+data class DeviceEnrollmentBundle(
+    val credentialHex: String,
+    val signaturePublicKeyHex: String,
+    val keyPackageHex: String,
+    val cipherSuite: String
+)
+
 object NativeMlsBridge {
     @Volatile
     private var loadAttempted = false
@@ -23,6 +32,19 @@ object NativeMlsBridge {
         }
         if (!loaded) return false
         runCatching { nativeInitializeStorageKey(key) }.getOrDefault(false)
+    }
+
+    fun createKeyPackage(userId: String, deviceId: String): DeviceEnrollmentBundle? = synchronized(this) {
+        if (!loaded) return null
+        runCatching {
+            val result = JSONObject(nativeCreateKeyPackage(userId, deviceId))
+            DeviceEnrollmentBundle(
+                credentialHex = result.getString("credential_hex"),
+                signaturePublicKeyHex = result.getString("signature_public_key_hex"),
+                keyPackageHex = result.getString("key_package_hex"),
+                cipherSuite = result.getString("cipher_suite")
+            )
+        }.getOrNull()
     }
 
     fun openDatabase(path: String): Boolean = synchronized(this) {
@@ -50,6 +72,7 @@ object NativeMlsBridge {
     private external fun nativeProtocolVersion(): String
     private external fun nativeInitializeStorageKey(key: ByteArray): Boolean
     private external fun nativeOpenDatabase(path: String): Boolean
+    private external fun nativeCreateKeyPackage(userId: String, deviceId: String): String
     private external fun nativeCloseDatabase()
     private external fun nativeClearStorageKey()
 }
