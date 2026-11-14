@@ -2,6 +2,7 @@ package dev.atomos.bridge.messaging
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,16 +13,17 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -34,13 +36,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
-private val MessengerViolet = Color(0xFF9B8CFF)
-private val MessengerSurface = Color(0xFF151A27)
-private val MessengerMuted = Color(0xFF9299AC)
+private val InboxBackground = Color(0xFF090B12)
+private val InboxSurface = Color(0xFF141927)
+private val InboxRaised = Color(0xFF1A2030)
+private val InboxAccent = Color(0xFFA99BFF)
+private val InboxMuted = Color(0xFF8D96AA)
 
 @Composable
 fun MessagingInboxScreen(
@@ -54,6 +62,8 @@ fun MessagingInboxScreen(
     var conversations by remember { mutableStateOf<List<MessengerConversationSummary>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var loadError by remember { mutableStateOf<String?>(null) }
+    var search by remember { mutableStateOf("") }
+    var selectedFilter by remember { mutableStateOf("All") }
 
     LaunchedEffect(api, userId) {
         loading = true
@@ -70,183 +80,227 @@ fun MessagingInboxScreen(
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0xFF090B12))
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text("Messages", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = Color.White)
-            Text("Private conversations, thoughtfully built.", style = MaterialTheme.typography.bodyMedium, color = MessengerMuted)
+    val visibleConversations = conversations.filter { conversation ->
+        val matchesSearch = conversation.participantNames.contains(search.trim(), ignoreCase = true)
+        val matchesFilter = when (selectedFilter) {
+            "Unread" -> conversation.unreadCount > 0
+            "Groups" -> conversation.kind == "group"
+            else -> true
         }
+        matchesSearch && matchesFilter
+    }
 
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(22.dp),
-            colors = CardDefaults.cardColors(containerColor = MessengerSurface)
+    Column(
+        modifier = Modifier.fillMaxSize().background(InboxBackground),
+        verticalArrangement = Arrangement.spacedBy(0.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                modifier = Modifier.padding(18.dp),
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                verticalAlignment = Alignment.Top
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text("atomos", color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.8).sp)
+                Text("MESSAGES  ·  PRIVATE BY DESIGN", color = InboxMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.25.sp)
+            }
+            Surface(
+                modifier = Modifier.size(42.dp).clickable(onClick = onPeople),
+                shape = CircleShape,
+                color = Color(0xFF292442)
             ) {
-                Box(
-                    modifier = Modifier.size(42.dp).background(Color(0xFF25213F), CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("⌑", color = MessengerViolet, fontSize = 24.sp)
-                }
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text("MLS security setup", color = Color.White, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        "This device can enroll and publish an MLS KeyPackage using its encrypted local store. New conversations can be created, but message sending stays disabled until MLS group creation, epoch persistence and message encryption are complete.",
-                        color = MessengerMuted,
-                        style = MaterialTheme.typography.bodySmall,
-                        lineHeight = 19.sp
-                    )
+                Box(contentAlignment = Alignment.Center) {
+                    Text("+", color = InboxAccent, fontSize = 27.sp, fontWeight = FontWeight.Light)
                 }
             }
         }
 
-        Text("YOUR CONVERSATIONS", color = MessengerViolet, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            StatusBubble("Y", "Your status", true, Modifier.weight(1f), onPeople)
+            StatusBubble("◎", "New group", false, Modifier.weight(1f), onPeople)
+            StatusBubble("⌕", "Find people", false, Modifier.weight(1f), onPeople)
+        }
+
+        OutlinedTextField(
+            value = search,
+            onValueChange = { search = it },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            shape = RoundedCornerShape(16.dp),
+            placeholder = { Text("Search conversations", color = InboxMuted) },
+            leadingIcon = { Text("⌕", color = InboxAccent, fontSize = 22.sp) }
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            listOf("All", "Unread", "Groups").forEach { filter ->
+                FilterChip(
+                    selected = selectedFilter == filter,
+                    onClick = { selectedFilter = filter },
+                    label = { Text(filter) },
+                    shape = RoundedCornerShape(12.dp)
+                )
+            }
+            Spacer(Modifier.weight(1f))
+            Text(
+                "${visibleConversations.size} chats",
+                modifier = Modifier.align(Alignment.CenterVertically),
+                color = InboxMuted,
+                fontSize = 11.sp
+            )
+        }
 
         when {
-            loading -> Box(Modifier.fillMaxWidth().padding(28.dp), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = MessengerViolet)
+            loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = InboxAccent)
             }
             loadError != null -> Card(
-                colors = CardDefaults.cardColors(containerColor = MessengerSurface),
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                colors = CardDefaults.cardColors(containerColor = InboxSurface),
                 shape = RoundedCornerShape(18.dp)
             ) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Couldn't load your inbox", color = Color.White, fontWeight = FontWeight.SemiBold)
-                    Text(loadError ?: "", color = MessengerMuted, style = MaterialTheme.typography.bodySmall)
+                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Your chats couldn't load", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text(loadError.orEmpty(), color = InboxMuted, style = MaterialTheme.typography.bodySmall)
+                    Button(onClick = {
+                        loading = true
+                        loadError = null
+                    }) { Text("Try again") }
                 }
             }
-            conversations.isEmpty() -> Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(22.dp),
-                colors = CardDefaults.cardColors(containerColor = MessengerSurface)
-            ) {
+            visibleConversations.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(
-                    modifier = Modifier.fillMaxWidth().padding(22.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 22.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Box(
-                        modifier = Modifier.size(68.dp).background(Color(0xFF17182A), CircleShape).border(1.dp, Color(0xFF343052), CircleShape),
+                        Modifier.size(76.dp).background(Color(0xFF201D35), CircleShape)
+                            .border(1.dp, Color(0xFF3C365E), CircleShape),
                         contentAlignment = Alignment.Center
-                    ) {
-                        Text("✉", color = MessengerViolet, fontSize = 30.sp)
-                    }
-                    Text("Your inbox starts here", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                    ) { Text("✉", color = InboxAccent, fontSize = 31.sp) }
+                    Text(if (search.isBlank()) "A quieter inbox. For now." else "No matching conversations", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     Text(
-                        "You don't have any conversations yet. Find someone by username and send a contact request to get started.",
-                        modifier = Modifier.fillMaxWidth(0.9f),
-                        color = MessengerMuted,
-                        style = MaterialTheme.typography.bodyMedium,
-                        textAlign = TextAlign.Center,
-                        lineHeight = 21.sp
+                        if (search.isBlank()) "Start a private conversation by finding someone on Atomos." else "Try another name or clear your search.",
+                        color = InboxMuted,
+                        style = MaterialTheme.typography.bodyMedium
                     )
-                    Button(onClick = onPeople, modifier = Modifier.fillMaxWidth()) {
-                        Text("Find people")
-                    }
+                    if (search.isBlank()) Button(onClick = onPeople) { Text("Start a conversation") }
                 }
             }
-            else -> conversations.forEach { conversation ->
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = { onOpenConversation(conversation.id) },
-                    shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.cardColors(containerColor = MessengerSurface)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+            else -> LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                items(visibleConversations, key = { it.id }) { conversation ->
+                    ConversationRow(
+                        conversation = conversation,
+                        onClick = { onOpenConversation(conversation.id) }
+                    )
+                }
+                item {
+                    Column(
+                        Modifier.fillMaxWidth().padding(top = 22.dp, bottom = 16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(5.dp)
                     ) {
-                        Box(
-                            modifier = Modifier.size(44.dp).background(Color(0xFF25213F), CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(if (conversation.kind == "group") "◎" else "◉", color = MessengerViolet, fontSize = 22.sp)
-                        }
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            Text(
-                                conversation.participantNames.ifBlank { if (conversation.kind == "group") "Group conversation" else "Direct conversation" },
-                                color = Color.White,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(if (conversation.kind == "group") "Group" else "Direct message", color = MessengerMuted, style = MaterialTheme.typography.labelSmall)
-                        }
-                        if (conversation.unreadCount > 0) {
-                            Surface(shape = CircleShape, color = MessengerViolet) {
-                                Text(
-                                    conversation.unreadCount.toString(),
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                    color = Color(0xFF11111B),
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 11.sp
-                                )
-                            }
-                        }
+                        Text("ATOMOS  ·  OPENMLS ${nativeProtocolVersion ?: "PENDING"}", color = InboxAccent, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                        Text(storageStatus, color = InboxMuted, fontSize = 10.sp)
+                        Text("Private conversations, built one device at a time.", color = InboxMuted, fontSize = 10.sp)
                     }
                 }
-            }
-        }
-
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF111521))
-        ) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                Text("NATIVE PROTOCOL RUNTIME", color = MessengerViolet, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
-                Text(nativeProtocolVersion ?: "Native library not present in this build", color = Color(0xFFD8D9E2), style = MaterialTheme.typography.bodySmall)
-                Text(storageStatus, color = MessengerMuted, style = MaterialTheme.typography.bodySmall, lineHeight = 18.sp)
-                Text(
-                    if (nativeProtocolVersion == null) "No messages can be sent in this build."
-                    else "MLS group bootstrap and encrypted message send/receive are connected to the conversation screen. Native build and multi-device verification are still required.",
-                    color = MessengerMuted,
-                    style = MaterialTheme.typography.bodySmall,
-                    lineHeight = 18.sp
-                )
             }
         }
     }
 }
 
 @Composable
-fun ConversationSetupScreen(conversationId: String, onBack: () -> Unit) {
+private fun StatusBubble(
+    symbol: String,
+    label: String,
+    highlighted: Boolean,
+    modifier: Modifier,
+    onClick: () -> Unit
+) {
     Column(
-        modifier = Modifier.fillMaxSize().background(Color(0xFF090B12)).padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        modifier = modifier.clickable(onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(5.dp)
     ) {
-        OutlinedButton(onClick = onBack) { Text("Back to chats") }
-        Text("Conversation", color = Color.White, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(22.dp),
-            colors = CardDefaults.cardColors(containerColor = MessengerSurface)
+        Box(
+            Modifier.size(48.dp).background(
+                if (highlighted) Color(0xFF292442) else InboxRaised,
+                CircleShape
+            ).border(1.dp, if (highlighted) InboxAccent else Color(0xFF30384A), CircleShape),
+            contentAlignment = Alignment.Center
         ) {
-            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Conversation created", color = MessengerViolet, fontWeight = FontWeight.Bold)
-                Text("The conversation record is ready.", color = Color.White, style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "The device is enrolled and its MLS KeyPackage is published. Atomos must still establish the MLS group, persist group epochs and verify the session before enabling message composition.",
-                    color = MessengerMuted,
-                    style = MaterialTheme.typography.bodySmall,
-                    lineHeight = 20.sp
-                )
-                Text("Conversation ID: $conversationId", color = Color(0xFF737B8E), style = MaterialTheme.typography.labelSmall)
+            Text(symbol, color = if (highlighted) InboxAccent else Color(0xFFD8D9E4), fontSize = 21.sp)
+        }
+        Text(label, color = InboxMuted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun ConversationRow(
+    conversation: MessengerConversationSummary,
+    onClick: () -> Unit
+) {
+    val title = conversation.participantNames.ifBlank {
+        if (conversation.kind == "group") "Group conversation" else "Direct conversation"
+    }
+    val initial = title.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "A"
+    val timestamp = remember(conversation.updatedAt) {
+        runCatching {
+            Instant.parse(conversation.updatedAt)
+                .atZone(ZoneId.systemDefault())
+                .format(DateTimeFormatter.ofPattern("HH:mm", Locale.getDefault()))
+        }.getOrDefault("")
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 11.dp, horizontal = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Box(
+            Modifier.size(54.dp).background(
+                if (conversation.kind == "group") Color(0xFF292442) else Color(0xFF202A3B),
+                CircleShape
+            ),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(initial, color = if (conversation.kind == "group") InboxAccent else Color(0xFFB8D4FF), fontSize = 21.sp, fontWeight = FontWeight.SemiBold)
+            if (conversation.kind != "group") {
+                Box(Modifier.align(Alignment.BottomEnd).size(13.dp).background(InboxBackground, CircleShape).padding(2.dp).background(Color(0xFF596477), CircleShape))
             }
         }
-        Spacer(Modifier.weight(1f))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(title, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Text(timestamp, color = if (conversation.unreadCount > 0) InboxAccent else InboxMuted, fontSize = 10.sp)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (conversation.kind == "group") "Group conversation" else "Encrypted conversation",
+                    color = InboxMuted,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                if (conversation.unreadCount > 0) {
+                    Box(
+                        Modifier.padding(start = 8.dp).background(InboxAccent, CircleShape).padding(horizontal = 7.dp, vertical = 3.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(conversation.unreadCount.coerceAtMost(99).toString(), color = Color(0xFF151321), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
     }
+    Box(Modifier.fillMaxWidth().padding(start = 66.dp).height(0.5.dp).background(Color(0xFF222A39)))
 }
