@@ -30,6 +30,7 @@ class MlsStorageKeyManager(
 
     fun initializeNative(databaseFile: File): Boolean {
         NativeMlsBridge.closeDatabase()
+        NativeMlsBridge.clearStorageKey()
         val storageKey = loadOrCreateStorageKey(databaseFile)
         return try {
             if (!NativeMlsBridge.initializeStorageKey(storageKey)) return false
