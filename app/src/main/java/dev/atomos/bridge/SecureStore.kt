@@ -35,7 +35,7 @@ class SecureStore(context: Context) {
 
     @Synchronized
     fun put(name: String, value: String) {
-        require(name.matches(Regex("[a-z_]{1,40}"))) { "Invalid secure-storage key." }
+        require(name.matches(Regex("[a-z0-9_]{1,64}"))) { "Invalid secure-storage key." }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, key())
         cipher.updateAAD((aadPrefix + name).toByteArray(Charsets.UTF_8))
@@ -47,7 +47,7 @@ class SecureStore(context: Context) {
 
     @Synchronized
     fun get(name: String): String? {
-        require(name.matches(Regex("[a-z_]{1,40}"))) { "Invalid secure-storage key." }
+        require(name.matches(Regex("[a-z0-9_]{1,64}"))) { "Invalid secure-storage key." }
         val encoded = prefs.getString(name, null) ?: return null
         return try {
             val packed = Base64.decode(encoded, Base64.NO_WRAP)
@@ -71,7 +71,7 @@ class SecureStore(context: Context) {
      */
     @Synchronized
     fun getStrict(name: String): String? {
-        require(name.matches(Regex("[a-z_]{1,40}"))) { "Invalid secure-storage key." }
+        require(name.matches(Regex("[a-z0-9_]{1,64}"))) { "Invalid secure-storage key." }
         val encoded = prefs.getString(name, null) ?: return null
         val packed = Base64.decode(encoded, Base64.NO_WRAP)
         require(packed.size > ivLength + 16) { "Stored value is truncated." }
