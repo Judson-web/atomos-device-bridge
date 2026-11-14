@@ -36,7 +36,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private val MessengerPageBackground = Color(0xFF090B12)
 private val MessengerPageSurface = Color(0xFF151A27)
@@ -47,6 +49,7 @@ private val MessengerPageAccent = Color(0xFF9B8CFF)
 fun PeopleDiscoveryScreen(
     api: SupabaseMessengerApi,
     currentUserId: String,
+    currentDeviceId: String,
     onConversationCreated: (String) -> Unit
 ) {
     val scope = rememberCoroutineScope()
@@ -222,16 +225,68 @@ fun PeopleDiscoveryScreen(
                         Text(profile.displayName, color = Color.White, fontWeight = FontWeight.SemiBold)
                         Text("@${profile.username}", color = MessengerPageMuted, style = MaterialTheme.typography.bodySmall)
                     }
-                    Button(onClick = {
-                        scope.launch {
-                            try {
-                                val conversationId = api.createDirectConversation(profile.userId)
-                                onConversationCreated(conversationId)
-                            } catch (e: Exception) {
-                                status = e.message ?: "Unable to create conversation."
+                    Button(
+                        enabled = currentDeviceId.isNotBlank(),
+                        onClick = {
+                            scope.launch {
+                                try {
+                                    val conversationId = api.createDirectConversation(profile.userId)
+                                    val claimed = api.claimConversationBootstrap(conversationId, currentDeviceId)
+                                    if (claimed) {
+                                        try {
+                                            val recipientPackages = api.consumeConversationKeyPackages(
+                                                conversationId,
+                                                profile.userId,
+                                                currentDeviceId
+                                            )
+                                            val ownOtherDevicePackages = api.consumeConversationKeyPackages(
+                                                conversationId,
+                                                currentUserId,
+                                                currentDeviceId
+                                            )
+                                            val packageHex = (recipientPackages + ownOtherDevicePackages)
+                                                .map { it.packageHex() }
+                                            check(packageHex.isNotEmpty()) {
+                                                "No active MLS KeyPackages are available. Ask the other person to open Atomos and try again."
+                                            }
+                                            val group = withContext(Dispatchers.IO) {
+                                                NativeMlsBridge.createDirectGroup(
+                                                    conversationId,
+                                                    currentUserId,
+                                                    currentDeviceId,
+                                                    packageHex
+                                                )
+                                            } ?: error("The native MLS group could not be created.")
+                                            if (group.welcomeHex != null) {
+                                                val messageId = api.sendMlsMessage(
+                                                    conversationId,
+                                                    currentUserId,
+                                                    currentDeviceId,
+                                                    group.welcomeHex
+                                                )
+                                                api.completeConversationBootstrap(
+                                                    conversationId,
+                                                    currentDeviceId,
+                                                    messageId
+                                                )
+                                                withContext(Dispatchers.IO) {
+                                                    NativeMlsBridge.markWelcomePublished(conversationId)
+                                                }
+                                            }
+                                        } catch (bootstrapError: Exception) {
+                                            runCatching {
+                                                api.releaseConversationBootstrap(conversationId, currentDeviceId)
+                                            }
+                                            throw bootstrapError
+                                        }
+                                    }
+                                    onConversationCreated(conversationId)
+                                } catch (e: Exception) {
+                                    status = e.message ?: "Unable to create secure conversation."
+                                }
                             }
                         }
-                    }) { Text("Chat") }
+                    ) { Text("Chat") }
                 }
             }
         }
