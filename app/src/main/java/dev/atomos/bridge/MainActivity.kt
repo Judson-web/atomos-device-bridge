@@ -361,7 +361,7 @@ private fun AtomosApp(
         } else Scaffold(
             containerColor = Background,
             topBar = {
-                if (page != "Files") CenterAlignedTopAppBar(
+                if (page !in setOf("Files", "Chats", "People", "Media", "Conversation")) CenterAlignedTopAppBar(
                     title = { Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(if (page == "Chats") "MESSAGES" else "ATOMOS", fontWeight = FontWeight.Black, letterSpacing = 3.sp, fontSize = 16.sp)
                         Text(if (page == "Chats") "SECURE MESSAGING SETUP" else if (network.connected) "${network.transport} · ↓ ${formatRate(network.downloadBps)} · ↑ ${formatRate(network.uploadBps)}" else "No internet connection", style = MaterialTheme.typography.labelSmall, color = if (page == "Chats" || network.connected) Violet else MaterialTheme.colorScheme.error)
@@ -371,7 +371,7 @@ private fun AtomosApp(
                 )
             },
             bottomBar = {
-                if (page != "Files") NavigationBar(containerColor = SurfaceDark) {
+                if (page != "Files" && page != "Conversation") NavigationBar(containerColor = SurfaceDark) {
                     listOf("Chats", "People", "Media", "Tools", "Files", "Profile").forEach { item ->
                         NavigationBarItem(
                             selected = page == item,
@@ -401,7 +401,7 @@ private fun AtomosApp(
                         }
                     }
                 )
-            } else Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 18.dp)) {
+            } else Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = if (page == "Chats" || page == "Conversation") 0.dp else 18.dp)) {
                 when (page) {
                     "Home" -> HomePage(network, status, onNetwork = { page = "Network" }, onFiles = { page = "Files" }, onInstaller = { page = "Installer" }, onSpeed = { page = "Network" }, onStorage = { page = "Storage" }, onChats = { page = "Chats" })
                     "Chats" -> MessagingInboxScreen(
@@ -435,8 +435,10 @@ private fun AtomosApp(
                     "Installer" -> InstallerPage(status, busy, { filePicker.launch(arrayOf("*/*")) }, { status = "Supported: APK, APKM, APKS, APKX and XAPK. Split archives are installed as one package session." })
                     "Settings" -> SettingsPage(status, network.ipAddress)
                 }
-                Spacer(Modifier.height(8.dp))
-                Text(status, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 8.dp))
+                if (page !in setOf("Chats", "Conversation", "People", "Media")) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(status, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 8.dp))
+                }
             }
         }
     }
