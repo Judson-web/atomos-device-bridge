@@ -89,7 +89,9 @@ impl Codec for EncryptedCodec {
     type Error = EncryptedCodecError;
 
     fn to_vec<T: Serialize>(value: &T) -> Result<Vec<u8>, Self::Error> {
-        let plaintext = serde_json::to_vec(value).map_err(EncryptedCodecError::Serialization)?;
+        let plaintext = Zeroizing::new(
+            serde_json::to_vec(value).map_err(EncryptedCodecError::Serialization)?
+        );
         let key = copy_storage_key()?;
         let cipher = XChaCha20Poly1305::new_from_slice(key.as_ref())
             .map_err(|_| EncryptedCodecError::InvalidEnvelope)?;
@@ -126,7 +128,7 @@ impl Codec for EncryptedCodec {
         let key = copy_storage_key()?;
         let cipher = XChaCha20Poly1305::new_from_slice(key.as_ref())
             .map_err(|_| EncryptedCodecError::InvalidEnvelope)?;
-        let plaintext = cipher
+        let plaintext = Zeroizing::new(cipher
             .decrypt(
                 XNonce::from_slice(nonce),
                 Payload {
@@ -134,7 +136,7 @@ impl Codec for EncryptedCodec {
                     aad: STORAGE_AAD,
                 },
             )
-            .map_err(|_| EncryptedCodecError::AuthenticationFailed)?;
+            .map_err(|_| EncryptedCodecError::AuthenticationFailed)?);
 
         serde_json::from_slice(&plaintext).map_err(EncryptedCodecError::Serialization)
     }
@@ -163,7 +165,7 @@ mod tests {
 
         let encoded = EncryptedCodec::to_vec(&state).expect("encrypt state");
         assert!(encoded.starts_with(MAGIC));
-        assert!(!encoded.windows(state.secret_material.len()).any(|part| part == state.secret_material));
+        assert!(!encoded.windows(state.secret_material.len()).any(|part| part == state.secret_material.as_slice()));
         let decoded: StoredState = EncryptedCodec::from_slice(&encoded).expect("decrypt state");
         assert_eq!(decoded, state);
 
