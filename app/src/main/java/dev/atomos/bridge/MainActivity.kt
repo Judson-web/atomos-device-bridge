@@ -117,6 +117,7 @@ private fun AtomosApp(
     val auth = remember { SupabaseAuth() }
     val messengerApi = remember { SupabaseMessengerApi() }
     var mlsStorageStatus by remember { mutableStateOf("Local MLS storage is not initialized.") }
+    var activeDeviceId by remember { mutableStateOf<String?>(null) }
     var activeConversationId by remember { mutableStateOf<String?>(null) }
     var user by remember { mutableStateOf<AuthUser?>(null) }
     var access by remember { mutableStateOf(store.get("access")) }
@@ -186,6 +187,7 @@ private fun AtomosApp(
         if (messengerApi.deviceIsRevoked(deviceId)) {
             deviceId = manager.rotateDeviceId()
         }
+        activeDeviceId = deviceId
 
         if (!messengerApi.deviceExists(deviceId)) {
             val bundles = withContext(Dispatchers.IO) {
@@ -278,6 +280,7 @@ private fun AtomosApp(
         scope.launch { messengerApi.signOut() }
         NativeMlsBridge.closeDatabase()
         NativeMlsBridge.clearStorageKey()
+        activeDeviceId = null
         store.remove("access", "refresh", "oauth_verifier")
         access = null
         user = null
@@ -414,6 +417,7 @@ private fun AtomosApp(
                     "People" -> PeopleDiscoveryScreen(
                         api = messengerApi,
                         currentUserId = user!!.id,
+                        currentDeviceId = activeDeviceId.orEmpty(),
                         onConversationCreated = { id -> activeConversationId = id; page = "Conversation" }
                     )
                     "Media" -> SharedMediaScreen(onBrowseLocalFiles = { page = "Files" })
