@@ -90,7 +90,7 @@ as $$
       and cm.user_id = auth.uid()
       and cm.removed_at is null
   );
-$$;
+$$$;
 
 create or replace function messenger.is_admin(p_conversation_id uuid)
 returns boolean
@@ -107,7 +107,7 @@ as $$
       and cm.removed_at is null
       and cm.role in ('owner', 'admin')
   );
-$$;
+$$$;
 
 revoke all on function messenger.is_member(uuid) from public;
 revoke all on function messenger.is_admin(uuid) from public;
@@ -267,7 +267,7 @@ begin
 
   return v_conversation_id;
 end;
-$$;
+$$$;
 
 create or replace function messenger.add_conversation_member(
   p_conversation_id uuid,
@@ -321,7 +321,7 @@ begin
                 joined_at = now(), removed_at = null
   where messenger.conversation_members.removed_at is not null;
 end;
-$$;
+$$$;
 
 create or replace function messenger.respond_contact_request(
   p_request_id uuid,
@@ -348,7 +348,7 @@ begin
     raise exception 'contact_request_not_found_or_already_resolved' using errcode = 'P0002';
   end if;
 end;
-$;
+$$;
 
 create or replace function messenger.leave_conversation(p_conversation_id uuid)
 returns void
@@ -383,7 +383,7 @@ begin
      set removed_at = now()
    where conversation_id = p_conversation_id and user_id = v_user_id;
 end;
-$;
+$$;
 
 create or replace function messenger.transfer_ownership(
   p_conversation_id uuid,
@@ -421,7 +421,7 @@ begin
    where conversation_id = p_conversation_id
      and user_id in (auth.uid(), p_new_owner_id);
 end;
-$;
+$$;
 
 create or replace function messenger.consume_key_package(p_cipher_suite text)
 returns table (
@@ -466,7 +466,7 @@ begin
   )
   select c.id, c.device_id, c.package, c.cipher_suite from consumed c;
 end;
-$$;
+$$$;
 
 -- RLS helpers are SECURITY DEFINER and use a fixed search_path. All exposed tables
 -- still enforce membership or owner checks at the row level.
@@ -680,7 +680,7 @@ create policy messenger_attachment_objects_delete_own on storage.objects
   );
 
 -- Enable Postgres Changes delivery if the standard Supabase publication exists.
-do $
+do $$
 begin
   if exists (select 1 from pg_publication where pubname = 'supabase_realtime')
      and not exists (
@@ -692,7 +692,7 @@ begin
     alter publication supabase_realtime add table messenger.messages;
   end if;
 end
-$;
+$$;
 
 comment on schema messenger is
   'Atomos Messenger. Payloads and attachment bytes are ciphertext only; protocol and key lifecycle are client-owned.';
