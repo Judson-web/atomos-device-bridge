@@ -105,7 +105,9 @@ fun ConversationSetupScreen(
                     )
                 }
             }
-            runCatching { api.markMessageRead(row.id, userId) }
+            if (row.senderUserId != userId) {
+                runCatching { api.markMessageRead(row.id, userId) }
+            }
         }
     }
 
@@ -205,7 +207,11 @@ fun ConversationSetupScreen(
                     }
                     Text("This is the beginning", color = Color.White, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
                     Text(
-                        "Messages sent here are encrypted on your device before they leave it. Your conversation will appear here once the secure group is ready.",
+                        if (secureGroupReady) {
+                            "This device has joined the MLS group. Messages are encrypted on-device before upload."
+                        } else {
+                            "Secure group setup is still pending. No message can be sent until this device has joined the MLS group."
+                        },
                         color = ChatMuted,
                         textAlign = TextAlign.Center,
                         style = MaterialTheme.typography.bodySmall,
