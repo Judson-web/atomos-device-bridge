@@ -30,14 +30,18 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+private val AuthViolet = Color(0xFF9B8CFF)
+private val AuthBackground = Color(0xFF090B12)
+private val AuthSurfaceDark = Color(0xFF151A27)
+
 @Composable
 fun AuthLoadingScreen() {
     Box(
-        modifier = Modifier.fillMaxSize().background(Background),
+        modifier = Modifier.fillMaxSize().background(AuthBackground),
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(18.dp)) {
-            CircularProgressIndicator(color = Violet)
+            CircularProgressIndicator(color = AuthViolet)
             Text("Checking your Atomos session", color = Color.White, style = MaterialTheme.typography.titleMedium)
             Text("Secure sign-in", color = Color(0xFF9299AC), style = MaterialTheme.typography.bodySmall)
         }
@@ -47,7 +51,7 @@ fun AuthLoadingScreen() {
 @Composable
 fun AuthGateScreen(error: String?, launching: Boolean, onSignIn: () -> Unit) {
     Box(
-        modifier = Modifier.fillMaxSize().background(Background).padding(24.dp),
+        modifier = Modifier.fillMaxSize().background(AuthBackground).padding(24.dp),
         contentAlignment = Alignment.Center
     ) {
         Column(
@@ -59,7 +63,7 @@ fun AuthGateScreen(error: String?, launching: Boolean, onSignIn: () -> Unit) {
                 modifier = Modifier.size(78.dp).background(Color(0xFF25213F), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                Text("A", color = Violet, fontSize = 38.sp, fontWeight = FontWeight.Black)
+                Text("A", color = AuthViolet, fontSize = 38.sp, fontWeight = FontWeight.Black)
             }
             Text("ATOMOS", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black, letterSpacing = 5.sp)
             Text(
@@ -71,7 +75,7 @@ fun AuthGateScreen(error: String?, launching: Boolean, onSignIn: () -> Unit) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = SurfaceDark)
+                colors = CardDefaults.cardColors(containerColor = AuthSurfaceDark)
             ) {
                 Column(
                     modifier = Modifier.fillMaxWidth().padding(22.dp),
@@ -91,7 +95,7 @@ fun AuthGateScreen(error: String?, launching: Boolean, onSignIn: () -> Unit) {
                         onClick = onSignIn,
                         enabled = !launching,
                         modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = Violet, contentColor = Color(0xFF11111B))
+                        colors = ButtonDefaults.buttonColors(containerColor = AuthViolet, contentColor = Color(0xFF11111B))
                     ) {
                         Text(if (launching) "Opening Discord…" else "Continue with Discord", fontWeight = FontWeight.Bold)
                     }
@@ -118,13 +122,13 @@ fun ProfileScreen(user: AuthUser, ip: String, status: String, onSignOut: () -> U
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(22.dp),
-            colors = CardDefaults.cardColors(containerColor = SurfaceDark)
+            colors = CardDefaults.cardColors(containerColor = AuthSurfaceDark)
         ) {
             Column(
                 modifier = Modifier.fillMaxWidth().padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text("ATOMOS ACCOUNT", color = Violet, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                Text("ATOMOS ACCOUNT", color = AuthViolet, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                 Text(user.name ?: "Atomos user", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                 Text(user.email ?: "Discord account", color = Color(0xFF9299AC), style = MaterialTheme.typography.bodyMedium)
                 Text("Account ID: ${user.id}", color = Color(0xFF737B8E), style = MaterialTheme.typography.labelSmall)
@@ -137,10 +141,10 @@ fun ProfileScreen(user: AuthUser, ip: String, status: String, onSignOut: () -> U
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(22.dp),
-            colors = CardDefaults.cardColors(containerColor = SurfaceDark)
+            colors = CardDefaults.cardColors(containerColor = AuthSurfaceDark)
         ) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("DEVICE", color = Violet, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                Text("DEVICE", color = AuthViolet, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                 Text("Local IP: ${ip.ifBlank { "Unavailable" }}", color = Color.White)
                 Text("Android 10 and newer", color = Color(0xFF9299AC), style = MaterialTheme.typography.bodySmall)
                 Text(status, color = Color(0xFF9299AC), style = MaterialTheme.typography.bodySmall)
