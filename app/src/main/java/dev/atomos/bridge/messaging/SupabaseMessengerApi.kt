@@ -2,10 +2,10 @@ package dev.atomos.bridge.messaging
 
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.Auth
-import io.github.jan.supabase.auth.importAuthToken
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.postgrest.from
+import io.github.jan.supabase.postgrest.query.Order
 import io.github.jan.supabase.postgrest.query.filter.eq
 import io.github.jan.supabase.realtime.Realtime
 import io.github.jan.supabase.storage.Storage
@@ -145,13 +145,13 @@ class SupabaseMessengerApi {
                 put("p_member_ids", buildJsonArray { add(kotlinx.serialization.json.JsonPrimitive(otherUserId)) })
             }
         )
-        return response.decodeAs()
+        return response.decodeSingle<String>()
     }
 
     suspend fun conversationSummaries(): List<MessengerConversationSummary> {
         return client.from("conversation_summaries")
             .select {
-                order("updated_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
+                order("updated_at", Order.DESCENDING)
             }
             .decodeList()
     }
@@ -161,7 +161,7 @@ class SupabaseMessengerApi {
         return client.from("messages")
             .select {
                 filter { eq("conversation_id", conversationId) }
-                order("created_at", io.github.jan.supabase.postgrest.query.Order.ASCENDING)
+                order("created_at", Order.ASCENDING)
                 limit(limit.toLong())
             }
             .decodeList()
