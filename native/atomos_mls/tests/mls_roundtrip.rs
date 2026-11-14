@@ -1,6 +1,7 @@
 use openmls::prelude::*;
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_rust_crypto::OpenMlsRustCrypto;
+use tls_codec::{Deserialize, Serialize};
 
 /// Exercises a real two-client MLS group and application-message round trip.
 /// This is a protocol-library test, not a substitute for Android ABI, storage,
