@@ -212,7 +212,7 @@ fun MessagingInboxScreen(
                 Text(storageStatus, color = MessengerMuted, style = MaterialTheme.typography.bodySmall, lineHeight = 18.sp)
                 Text(
                     if (nativeProtocolVersion == null) "No messages can be sent in this build."
-                    else "Device KeyPackage enrollment is implemented. MLS group state and message encryption are still disabled.",
+                    else "MLS group bootstrap and encrypted message send/receive are connected to the conversation screen. Native build and multi-device verification are still required.",
                     color = MessengerMuted,
                     style = MaterialTheme.typography.bodySmall,
                     lineHeight = 18.sp
