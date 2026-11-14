@@ -26,8 +26,8 @@ fn runtime_version() -> String {
 
 #[no_mangle]
 pub extern "system" fn Java_dev_atomos_bridge_messaging_NativeMlsBridge_nativeProtocolVersion(
-    mut env: JNIEnv,
-    _class: JClass,
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
 ) -> jstring {
     match env.new_string(runtime_version()) {
         Ok(value) => value.into_raw(),
