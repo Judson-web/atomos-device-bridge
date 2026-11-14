@@ -28,6 +28,7 @@ class MlsStorageKeyManager(
     }
     private val alias = "atomos_mls_storage_wrap_$accountSuffix"
     private val secureStoreName = "mls_storage_key_wrapped_$accountSuffix"
+    private val deviceIdKey = "mls_device_id_$accountSuffix"
     private val ivBytes = 12
 
     fun initializeNative(databaseFile: File): Boolean {
@@ -47,6 +48,19 @@ class MlsStorageKeyManager(
         NativeMlsBridge.closeDatabase()
         NativeMlsBridge.clearStorageKey()
     }
+
+    fun deviceIdOrCreate(): String {
+        val existing = secureStore.getStrict(deviceIdKey)
+        if (existing != null) {
+            return java.util.UUID.fromString(existing).toString()
+        }
+        val created = java.util.UUID.randomUUID().toString()
+        secureStore.put(deviceIdKey, created)
+        return created
+    }
+
+    fun createDeviceKeyPackage(userId: String, deviceId: String) =
+        NativeMlsBridge.createKeyPackage(userId, deviceId)
 
     private fun loadOrCreateStorageKey(databaseFile: File): ByteArray {
         val wrapped = secureStore.getStrict(secureStoreName)
