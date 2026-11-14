@@ -287,7 +287,7 @@ private fun ConversationRow(
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    if (conversation.kind == "group") "Group conversation" else "Encrypted conversation",
+                    if (conversation.kind == "group") "Group conversation" else "Experimental MLS session",
                     color = InboxMuted,
                     fontSize = 12.sp,
                     maxLines = 1,
