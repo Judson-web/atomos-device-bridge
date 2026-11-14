@@ -46,6 +46,7 @@ private val MessengerMuted = Color(0xFF9299AC)
 fun MessagingInboxScreen(
     api: SupabaseMessengerApi,
     userId: String,
+    storageStatus: String,
     onPeople: () -> Unit,
     onOpenConversation: (String) -> Unit
 ) {
@@ -208,6 +209,7 @@ fun MessagingInboxScreen(
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                 Text("NATIVE PROTOCOL RUNTIME", color = MessengerViolet, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
                 Text(nativeProtocolVersion ?: "Native library not present in this build", color = Color(0xFFD8D9E2), style = MaterialTheme.typography.bodySmall)
+                Text(storageStatus, color = MessengerMuted, style = MaterialTheme.typography.bodySmall, lineHeight = 18.sp)
                 Text(
                     if (nativeProtocolVersion == null) "No messages can be sent in this build."
                     else "Runtime detected only. MLS key management and message encryption are not enabled yet.",
