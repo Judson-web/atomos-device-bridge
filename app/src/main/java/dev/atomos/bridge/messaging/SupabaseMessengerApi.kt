@@ -196,7 +196,7 @@ class SupabaseMessengerApi {
             ?.revokedAt != null
     }
 
-    suspend fun hasActiveKeyPackage(deviceId: String): Boolean {
+    suspend fun activeKeyPackageCount(deviceId: String): Int {
         val now = java.time.Instant.now().toString()
         return client.from("key_packages")
             .select {
@@ -205,46 +205,53 @@ class SupabaseMessengerApi {
                     io.github.jan.supabase.postgrest.query.filter.isNull("consumed_at")
                     io.github.jan.supabase.postgrest.query.filter.gt("expires_at", now)
                 }
-                limit(1)
             }
             .decodeList<KeyPackageIdRow>()
-            .isNotEmpty()
+            .size
     }
 
     suspend fun registerDevice(
         userId: String,
         deviceId: String,
         label: String,
-        bundle: DeviceEnrollmentBundle
+        bundles: List<DeviceEnrollmentBundle>
     ) {
+        require(bundles.isNotEmpty())
+        val identityBundle = bundles.first()
         client.from("devices").upsert(
             DeviceUpsert(
                 id = deviceId,
                 userId = userId,
                 label = label.take(80),
-                credential = bytea(bundle.credentialHex),
-                signaturePublicKey = bytea(bundle.signaturePublicKeyHex),
+                credential = bytea(identityBundle.credentialHex),
+                signaturePublicKey = bytea(identityBundle.signaturePublicKeyHex),
                 lastSeenAt = java.time.Instant.now().toString()
             ),
             onConflict = "id"
         )
-        publishKeyPackage(deviceId, bundle)
+        publishKeyPackages(deviceId, bundles)
     }
 
-    suspend fun publishKeyPackage(deviceId: String, bundle: DeviceEnrollmentBundle) {
+    suspend fun publishKeyPackages(deviceId: String, bundles: List<DeviceEnrollmentBundle>) {
+        require(bundles.isNotEmpty() && bundles.size <= 20)
+        val cipherSuite = bundles.first().cipherSuite
+        require(bundles.all { it.cipherSuite == cipherSuite })
         client.from("key_packages").delete {
             filter {
                 eq("device_id", deviceId)
                 io.github.jan.supabase.postgrest.query.filter.isNull("consumed_at")
             }
         }
+        val expiry = java.time.Instant.now().plusSeconds(7 * 24 * 60 * 60).toString()
         client.from("key_packages").insert(
-            KeyPackageInsert(
-                deviceId = deviceId,
-                packageBytes = bytea(bundle.keyPackageHex),
-                cipherSuite = bundle.cipherSuite,
-                expiresAt = java.time.Instant.now().plusSeconds(7 * 24 * 60 * 60).toString()
-            )
+            bundles.map { bundle ->
+                KeyPackageInsert(
+                    deviceId = deviceId,
+                    packageBytes = bytea(bundle.keyPackageHex),
+                    cipherSuite = bundle.cipherSuite,
+                    expiresAt = expiry
+                )
+            }
         )
     }
 
