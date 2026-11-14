@@ -5,12 +5,12 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Optional JNI handshake for the pinned OpenMLS native library.
+ * JNI bridge for the pinned OpenMLS native library.
  *
- * This bridge opens per-account encrypted OpenMLS SQLite storage and creates
- * device-bound KeyPackages. It does not yet create MLS groups or encrypt/decrypt
- * application messages; message composition remains disabled until those operations
- * and their persistence/interoperability tests are implemented and reviewed.
+ * The bridge exposes encrypted SQLite storage, device-bound KeyPackages,
+ * direct-group bootstrap, MLS Welcome processing and application-message
+ * encryption/decryption. These operations are implementation work in progress
+ * and must pass native, Android and multi-device verification before release.
  */
 data class DirectGroupResult(val welcomeHex: String?, val alreadyInitialized: Boolean)
 data class IncomingMessageResult(val kind: String, val plaintext: ByteArray?)
