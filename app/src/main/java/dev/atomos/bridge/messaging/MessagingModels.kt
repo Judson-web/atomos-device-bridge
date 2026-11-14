@@ -80,12 +80,15 @@ data class ConversationSummary(
     }
 }
 
-data class LocalDeviceIdentity(
+class LocalDeviceIdentity(
     val deviceId: DeviceId,
-    val publicIdentityKey: ByteArray,
+    publicIdentityKey: ByteArray,
     val createdAt: Instant
 ) {
-    init { require(publicIdentityKey.isNotEmpty()) }
+    private val keyBytes = publicIdentityKey.copyOf()
+    val publicIdentityKey: ByteArray get() = keyBytes.copyOf()
+
+    init { require(keyBytes.isNotEmpty()) }
 }
 
 /**
