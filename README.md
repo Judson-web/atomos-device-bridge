@@ -29,7 +29,7 @@ These capabilities will be integrated through narrow attachment and preview inte
 - Make device enrollment, key changes, backup and recovery explicit and visible.
 - Do not claim E2EE until the documented security release gate has passed.
 
-See docs/MESSENGER_ARCHITECTURE.md for the architecture, security invariants, migration plan and release gate.
+See docs/MESSENGER_ARCHITECTURE.md for the architecture and docs/CRYPTO_PROTOCOL_DECISION.md for the MLS/OpenMLS decision, Android native integration requirements and security gates.
 
 ## Platform and build
 
