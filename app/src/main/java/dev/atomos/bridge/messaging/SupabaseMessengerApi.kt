@@ -78,6 +78,7 @@ data class ConsumedKeyPackage(
 
 @Serializable
 private data class MessengerMessageInsert(
+    val id: String,
     @SerialName("conversation_id") val conversationId: String,
     @SerialName("sender_user_id") val senderUserId: String,
     @SerialName("sender_device_id") val senderDeviceId: String,
@@ -374,15 +375,54 @@ class SupabaseMessengerApi {
         senderUserId: String,
         senderDeviceId: String,
         messageHex: String
-    ) {
+    ): String {
+        val messageId = java.util.UUID.randomUUID().toString()
         client.from("messages").insert(
             MessengerMessageInsert(
+                id = messageId,
                 conversationId = conversationId,
                 senderUserId = senderUserId,
                 senderDeviceId = senderDeviceId,
                 protocolVersion = 1,
                 ciphertext = bytea(messageHex)
             )
+        )
+        return messageId
+    }
+
+    suspend fun claimConversationBootstrap(conversationId: String, deviceId: String): Boolean {
+        val response = client.postgrest.rpc(
+            function = "claim_conversation_bootstrap",
+            parameters = buildJsonObject {
+                put("p_conversation_id", conversationId)
+                put("p_device_id", deviceId)
+            }
+        )
+        return response.decodeSingle<Boolean>()
+    }
+
+    suspend fun completeConversationBootstrap(
+        conversationId: String,
+        deviceId: String,
+        welcomeMessageId: String
+    ) {
+        client.postgrest.rpc(
+            function = "complete_conversation_bootstrap",
+            parameters = buildJsonObject {
+                put("p_conversation_id", conversationId)
+                put("p_device_id", deviceId)
+                put("p_welcome_message_id", welcomeMessageId)
+            }
+        )
+    }
+
+    suspend fun releaseConversationBootstrap(conversationId: String, deviceId: String) {
+        client.postgrest.rpc(
+            function = "release_conversation_bootstrap",
+            parameters = buildJsonObject {
+                put("p_conversation_id", conversationId)
+                put("p_device_id", deviceId)
+            }
         )
     }
 
