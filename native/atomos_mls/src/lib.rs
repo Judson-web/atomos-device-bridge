@@ -9,7 +9,7 @@ pub mod engine;
 pub mod storage;
 
 use jni::objects::{JByteArray, JClass, JString};
-use jni::sys::{jboolean, jint, jstring, JNI_FALSE, JNI_TRUE};
+use jni::sys::{jboolean, jbyteArray, jint, jstring, JNI_FALSE, JNI_TRUE};
 use jni::JNIEnv;
 use openmls_rust_crypto::OpenMlsRustCrypto;
 use std::sync::{Mutex, OnceLock};
@@ -190,9 +190,14 @@ pub extern "system" fn Java_dev_atomos_bridge_messaging_NativeMlsBridge_nativePr
     mut env: JNIEnv<'_>,
     _class: JClass<'_>,
     conversation_id: JString<'_>,
+    message_id: JString<'_>,
     message_hex: JString<'_>,
 ) -> jstring {
     let conversation_id: String = match env.get_string(&conversation_id) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let message_id: String = match env.get_string(&message_id) {
         Ok(value) => value.into(),
         Err(_) => return std::ptr::null_mut(),
     };
@@ -209,7 +214,7 @@ pub extern "system" fn Java_dev_atomos_bridge_messaging_NativeMlsBridge_nativePr
     let Some(engine) = slot.as_mut() else {
         return std::ptr::null_mut();
     };
-    let result = match engine.process_incoming_message(&conversation_id, &message_bytes) {
+    let result = match engine.process_incoming_message(&conversation_id, &message_id, &message_bytes) {
         Ok(value) => value,
         Err(_) => return std::ptr::null_mut(),
     };
@@ -225,6 +230,7 @@ pub extern "system" fn Java_dev_atomos_bridge_messaging_NativeMlsBridge_nativeCr
     _class: JClass<'_>,
     conversation_id: JString<'_>,
     device_id: JString<'_>,
+    message_id: JString<'_>,
     plaintext: JByteArray<'_>,
 ) -> jstring {
     let conversation_id: String = match env.get_string(&conversation_id) {
@@ -232,6 +238,10 @@ pub extern "system" fn Java_dev_atomos_bridge_messaging_NativeMlsBridge_nativeCr
         Err(_) => return std::ptr::null_mut(),
     };
     let device_id: String = match env.get_string(&device_id) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let message_id: String = match env.get_string(&message_id) {
         Ok(value) => value.into(),
         Err(_) => return std::ptr::null_mut(),
     };
@@ -248,6 +258,7 @@ pub extern "system" fn Java_dev_atomos_bridge_messaging_NativeMlsBridge_nativeCr
     let result = engine.create_application_message(
         &conversation_id,
         &device_id,
+        &message_id,
         &plaintext_bytes,
     );
     plaintext_bytes.zeroize();
@@ -258,6 +269,60 @@ pub extern "system" fn Java_dev_atomos_bridge_messaging_NativeMlsBridge_nativeCr
     match env.new_string(message) {
         Ok(value) => value.into_raw(),
         Err(_) => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_dev_atomos_bridge_messaging_NativeMlsBridge_nativeCachedPlaintext(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    conversation_id: JString<'_>,
+    message_id: JString<'_>,
+) -> jbyteArray {
+    let conversation_id: String = match env.get_string(&conversation_id) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let message_id: String = match env.get_string(&message_id) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let slot = engine_slot().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let Some(engine) = slot.as_ref() else {
+        return std::ptr::null_mut();
+    };
+    match engine.cached_plaintext(&conversation_id, &message_id) {
+        Ok(Some(bytes)) => match env.byte_array_from_slice(&bytes) {
+            Ok(array) => array.into_raw(),
+            Err(_) => std::ptr::null_mut(),
+        },
+        _ => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_dev_atomos_bridge_messaging_NativeMlsBridge_nativeMarkMessageSent(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    conversation_id: JString<'_>,
+    message_id: JString<'_>,
+) -> jboolean {
+    let conversation_id: String = match env.get_string(&conversation_id) {
+        Ok(value) => value.into(),
+        Err(_) => return JNI_FALSE,
+    };
+    let message_id: String = match env.get_string(&message_id) {
+        Ok(value) => value.into(),
+        Err(_) => return JNI_FALSE,
+    };
+    let mut slot = engine_slot().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let Some(engine) = slot.as_mut() else {
+        return JNI_FALSE;
+    };
+    if engine.mark_message_sent(&conversation_id, &message_id).is_ok() {
+        JNI_TRUE
+    } else {
+        JNI_FALSE
     }
 }
 
