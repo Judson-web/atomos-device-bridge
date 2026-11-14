@@ -475,7 +475,7 @@ mod tests {
         ));
         let path_string = path.to_string_lossy().into_owned();
 
-        let _guard = crate::storage::tests::TEST_LOCK.lock().expect("storage test lock");
+        let _guard = crate::storage::TEST_LOCK.lock().expect("storage test lock");
         crate::storage::set_storage_key(&[0x24; 32]).expect("install test storage key");
         let mut engine = AtomosMlsEngine::open(&path_string)
             .expect("encrypted SQLite storage migrations should succeed");
