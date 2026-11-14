@@ -58,10 +58,13 @@ fun MessagingInboxScreen(
         loading = true
         loadError = null
         try {
-            conversations = api.conversationSummaries()
+            api.observeConversationRows().collect {
+                conversations = api.conversationSummaries()
+                loading = false
+                loadError = null
+            }
         } catch (e: Exception) {
             loadError = e.message ?: "Unable to load conversations."
-        } finally {
             loading = false
         }
     }
