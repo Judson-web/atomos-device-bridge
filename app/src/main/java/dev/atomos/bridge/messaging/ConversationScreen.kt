@@ -125,7 +125,7 @@ fun ConversationSetupScreen(
             val initial = withContext(Dispatchers.IO) { api.encryptedMessages(conversationId) }
             consume(initial)
             status = if (NativeMlsBridge.hasGroup(conversationId)) {
-                "End-to-end encrypted · MLS"
+                "MLS encryption active · experimental"
             } else {
                 "Waiting for secure group setup"
             }
@@ -134,7 +134,7 @@ fun ConversationSetupScreen(
                 try {
                     consume(rows)
                     status = if (NativeMlsBridge.hasGroup(conversationId)) {
-                        "End-to-end encrypted · MLS"
+                        "MLS encryption active · experimental"
                     } else {
                         "Waiting for secure group setup"
                     }
@@ -322,7 +322,7 @@ fun ConversationSetupScreen(
                                     )
                                 )
                                 draft = ""
-                                status = "End-to-end encrypted · MLS"
+                                status = "MLS encryption active · experimental"
                             } catch (e: Exception) {
                                 status = e.message ?: "Message could not be sent."
                             } finally {
