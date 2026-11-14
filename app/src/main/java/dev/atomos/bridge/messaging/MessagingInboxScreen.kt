@@ -105,7 +105,7 @@ fun MessagingInboxScreen(
                 ) {
                     Text("MLS security setup", color = Color.White, fontWeight = FontWeight.SemiBold)
                     Text(
-                        "The native protocol runtime is being integrated. New conversations can be created, but message sending stays disabled until device enrollment, durable MLS state and encryption are complete.",
+                        "This device can enroll and publish an MLS KeyPackage using its encrypted local store. New conversations can be created, but message sending stays disabled until MLS group creation, epoch persistence and message encryption are complete.",
                         color = MessengerMuted,
                         style = MaterialTheme.typography.bodySmall,
                         lineHeight = 19.sp
@@ -212,7 +212,7 @@ fun MessagingInboxScreen(
                 Text(storageStatus, color = MessengerMuted, style = MaterialTheme.typography.bodySmall, lineHeight = 18.sp)
                 Text(
                     if (nativeProtocolVersion == null) "No messages can be sent in this build."
-                    else "Runtime detected only. MLS key management and message encryption are not enabled yet.",
+                    else "Device KeyPackage enrollment is implemented. MLS group state and message encryption are still disabled.",
                     color = MessengerMuted,
                     style = MaterialTheme.typography.bodySmall,
                     lineHeight = 18.sp
@@ -239,7 +239,7 @@ fun ConversationSetupScreen(conversationId: String, onBack: () -> Unit) {
                 Text("Conversation created", color = MessengerViolet, fontWeight = FontWeight.Bold)
                 Text("The conversation record is ready.", color = Color.White, style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "The secure session is not active yet. Atomos must enroll this device, publish its MLS key package, create the MLS group and verify the group state before enabling message composition.",
+                    "The device is enrolled and its MLS KeyPackage is published. Atomos must still establish the MLS group, persist group epochs and verify the session before enabling message composition.",
                     color = MessengerMuted,
                     style = MaterialTheme.typography.bodySmall,
                     lineHeight = 20.sp
