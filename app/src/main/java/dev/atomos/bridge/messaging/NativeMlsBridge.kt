@@ -1,5 +1,6 @@
 package dev.atomos.bridge.messaging
 
+import org.json.JSONArray
 import org.json.JSONObject
 
 /**
@@ -34,16 +35,19 @@ object NativeMlsBridge {
         runCatching { nativeInitializeStorageKey(key) }.getOrDefault(false)
     }
 
-    fun createKeyPackage(userId: String, deviceId: String): DeviceEnrollmentBundle? = synchronized(this) {
-        if (!loaded) return null
+    fun createKeyPackages(userId: String, deviceId: String, count: Int): List<DeviceEnrollmentBundle>? = synchronized(this) {
+        if (!loaded || count !in 1..20) return null
         runCatching {
-            val result = JSONObject(nativeCreateKeyPackage(userId, deviceId))
-            DeviceEnrollmentBundle(
-                credentialHex = result.getString("credential_hex"),
-                signaturePublicKeyHex = result.getString("signature_public_key_hex"),
-                keyPackageHex = result.getString("key_package_hex"),
-                cipherSuite = result.getString("cipher_suite")
-            )
+            val results = JSONArray(nativeCreateKeyPackages(userId, deviceId, count))
+            List(results.length()) { index ->
+                val result = results.getJSONObject(index)
+                DeviceEnrollmentBundle(
+                    credentialHex = result.getString("credential_hex"),
+                    signaturePublicKeyHex = result.getString("signature_public_key_hex"),
+                    keyPackageHex = result.getString("key_package_hex"),
+                    cipherSuite = result.getString("cipher_suite")
+                )
+            }
         }.getOrNull()
     }
 
@@ -72,7 +76,7 @@ object NativeMlsBridge {
     private external fun nativeProtocolVersion(): String
     private external fun nativeInitializeStorageKey(key: ByteArray): Boolean
     private external fun nativeOpenDatabase(path: String): Boolean
-    private external fun nativeCreateKeyPackage(userId: String, deviceId: String): String
+    private external fun nativeCreateKeyPackages(userId: String, deviceId: String, count: Int): String
     private external fun nativeCloseDatabase()
     private external fun nativeClearStorageKey()
 }
