@@ -336,9 +336,8 @@ impl AtomosMlsEngine {
                 )?;
                 let group = staged.into_group(&provider)?;
                 let group_id = group.group_id().tls_serialize_detached()?;
-                let epoch = group.epoch().as_u64();
                 self.metadata_put(&group_key, &group_id)?;
-                Ok(serde_json::json!({ "kind": "welcome", "epoch": epoch }))
+                Ok(serde_json::json!({ "kind": "welcome" }))
             }
             _ => {
                 let group_id_bytes = self.metadata_get::<Vec<u8>>(&group_key)?
