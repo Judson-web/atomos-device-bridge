@@ -4,12 +4,13 @@
 //! are serialized by OpenMLS SQLite storage and encrypted by EncryptedCodec before
 //! they are written to SQLite. This module does not implement MLS protocol logic.
 
-use crate::storage::EncryptedCodec;
+use crate::storage::{EncryptedCodec, set_storage_key};
 use openmls::prelude::{Ciphersuite, CredentialWithKey, KeyPackage};
 use openmls_basic_credential::{BasicCredential, SignatureKeyPair};
 use openmls_rust_crypto::RustCrypto;
-use openmls_sqlite_storage::{Connection, SqliteStorageProvider};
+use openmls_sqlite_storage::SqliteStorageProvider;
 use openmls_traits::OpenMlsProvider;
+use rusqlite::{Connection, OptionalExtension};
 use std::error::Error;
 use std::time::Duration;
 use tls_codec::Serialize;
@@ -64,7 +65,11 @@ impl AtomosMlsEngine {
         connection.execute_batch(
             "PRAGMA journal_mode=WAL;
              PRAGMA synchronous=FULL;
-             PRAGMA foreign_keys=ON;",
+             PRAGMA foreign_keys=ON;
+             CREATE TABLE IF NOT EXISTS atomos_mls_metadata (
+               key TEXT PRIMARY KEY NOT NULL,
+               value BLOB NOT NULL
+             );",
         )?;
 
         {
@@ -78,9 +83,9 @@ impl AtomosMlsEngine {
         })
     }
 
-    /// Creates a device-bound MLS KeyPackage and persists its private key material
-    /// through the encrypted OpenMLS storage provider. Only public enrollment data
-    /// and the serialized KeyPackage are returned to Kotlin.
+    /// Creates a device-bound MLS KeyPackage. The long-term signing key is
+    /// serialized into the encrypted metadata table and also stored in OpenMLS.
+    /// KeyPackage private material is stored by OpenMLS through EncryptedCodec.
     pub fn create_key_package(
         &mut self,
         user_id: &str,
@@ -93,12 +98,27 @@ impl AtomosMlsEngine {
         }
 
         let identity = format!("atomos-v1:{user_id}:{device_id}");
-        self.with_provider(|provider| {
-            let ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
-            let credential = BasicCredential::new(identity.as_bytes().to_vec());
-            let signature_keys = SignatureKeyPair::new(ciphersuite.signature_algorithm())?;
+        let metadata_key = format!("device-signing-key:{device_id}");
+        let ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
+
+        let stored_signer: Option<Vec<u8>> = self.connection
+            .query_row(
+                "SELECT value FROM atomos_mls_metadata WHERE key = ?1",
+                [&metadata_key],
+                |row| row.get(0),
+            )
+            .optional()?;
+
+        let (signature_keys, is_new) = match stored_signer {
+            Some(encoded) => (EncryptedCodec::from_slice::<SignatureKeyPair>(&encoded)?, false),
+            None => (SignatureKeyPair::new(ciphersuite.signature_algorithm())?, true),
+        };
+
+        let (serialized_package, public_signature_key) = {
+            let provider = AtomosProvider::new(&self.crypto, &mut self.connection);
             signature_keys.store(provider.storage())?;
 
+            let credential = BasicCredential::new(identity.as_bytes().to_vec());
             let credential_with_key = CredentialWithKey {
                 credential: credential.into(),
                 signature_key: signature_keys.public().into(),
@@ -106,20 +126,30 @@ impl AtomosMlsEngine {
 
             let key_package = KeyPackage::builder().build(
                 ciphersuite,
-                provider,
+                &provider,
                 &signature_keys,
                 credential_with_key,
             )?;
-            let serialized_package = key_package.key_package().tls_serialize_detached()?;
-            let public_signature_key = signature_keys.public().to_vec();
+            (
+                key_package.key_package().tls_serialize_detached()?,
+                signature_keys.to_public_vec(),
+            )
+        };
 
-            Ok(serde_json::json!({
-                "credential_hex": hex::encode(identity.as_bytes()),
-                "signature_public_key_hex": hex::encode(public_signature_key),
-                "key_package_hex": hex::encode(serialized_package),
-                "cipher_suite": "MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519"
-            }))
-        })
+        if is_new {
+            let encoded_signer = EncryptedCodec::to_vec(&signature_keys)?;
+            self.connection.execute(
+                "INSERT INTO atomos_mls_metadata (key, value) VALUES (?1, ?2)",
+                (&metadata_key, &encoded_signer),
+            )?;
+        }
+
+        Ok(serde_json::json!({
+            "credential_hex": hex::encode(identity.as_bytes()),
+            "signature_public_key_hex": hex::encode(public_signature_key),
+            "key_package_hex": hex::encode(serialized_package),
+            "cipher_suite": "MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519"
+        }))
     }
 
     /// Runs an operation with the durable provider. The provider borrows the SQLite
