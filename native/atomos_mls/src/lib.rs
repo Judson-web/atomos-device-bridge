@@ -9,7 +9,7 @@ pub mod engine;
 pub mod storage;
 
 use jni::objects::{JByteArray, JClass, JString};
-use jni::sys::{jboolean, jstring, JNI_FALSE, JNI_TRUE};
+use jni::sys::{jboolean, jint, jstring, JNI_FALSE, JNI_TRUE};
 use jni::JNIEnv;
 use openmls_rust_crypto::OpenMlsRustCrypto;
 use std::sync::{Mutex, OnceLock};
@@ -78,11 +78,12 @@ pub extern "system" fn Java_dev_atomos_bridge_messaging_NativeMlsBridge_nativeOp
 }
 
 #[no_mangle]
-pub extern "system" fn Java_dev_atomos_bridge_messaging_NativeMlsBridge_nativeCreateKeyPackage(
+pub extern "system" fn Java_dev_atomos_bridge_messaging_NativeMlsBridge_nativeCreateKeyPackages(
     mut env: JNIEnv<'_>,
     _class: JClass<'_>,
     user_id: JString<'_>,
     device_id: JString<'_>,
+    count: jint,
 ) -> jstring {
     let user_id: String = match env.get_string(&user_id) {
         Ok(value) => value.into(),
@@ -97,7 +98,10 @@ pub extern "system" fn Java_dev_atomos_bridge_messaging_NativeMlsBridge_nativeCr
     let Some(engine) = slot.as_mut() else {
         return std::ptr::null_mut();
     };
-    let enrollment = match engine.create_key_package(&user_id, &device_id) {
+    if count <= 0 || count > 20 {
+        return std::ptr::null_mut();
+    }
+    let enrollment = match engine.create_key_packages(&user_id, &device_id, count as usize) {
         Ok(value) => value,
         Err(_) => return std::ptr::null_mut(),
     };
