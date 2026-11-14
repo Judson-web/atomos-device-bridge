@@ -83,19 +83,34 @@ object NativeMlsBridge {
         runCatching { nativeMarkWelcomePublished(conversationId) }.getOrDefault(false)
     }
 
-    fun processIncomingMessage(conversationId: String, messageHex: String): IncomingMessageResult? = synchronized(this) {
+    fun processIncomingMessage(conversationId: String, messageId: String, messageHex: String): IncomingMessageResult? = synchronized(this) {
         if (!loaded) return null
         runCatching {
-            val result = JSONObject(nativeProcessIncomingMessage(conversationId, messageHex))
+            val result = JSONObject(nativeProcessIncomingMessage(conversationId, messageId, messageHex))
             val plaintext = result.optString("plaintext_base64").takeIf { it.isNotBlank() }
                 ?.let { Base64.decode(it, Base64.NO_WRAP) }
             IncomingMessageResult(result.getString("kind"), plaintext)
         }.getOrNull()
     }
 
-    fun createApplicationMessage(conversationId: String, deviceId: String, plaintext: ByteArray): String? = synchronized(this) {
+    fun cachedPlaintext(conversationId: String, messageId: String): ByteArray? = synchronized(this) {
         if (!loaded) return null
-        runCatching { nativeCreateApplicationMessage(conversationId, deviceId, plaintext) }.getOrNull()
+        runCatching { nativeCachedPlaintext(conversationId, messageId) }.getOrNull()
+    }
+
+    fun createApplicationMessage(
+        conversationId: String,
+        deviceId: String,
+        messageId: String,
+        plaintext: ByteArray
+    ): String? = synchronized(this) {
+        if (!loaded) return null
+        runCatching { nativeCreateApplicationMessage(conversationId, deviceId, messageId, plaintext) }.getOrNull()
+    }
+
+    fun markMessageSent(conversationId: String, messageId: String): Boolean = synchronized(this) {
+        if (!loaded) return false
+        runCatching { nativeMarkMessageSent(conversationId, messageId) }.getOrDefault(false)
     }
 
     fun openDatabase(path: String): Boolean = synchronized(this) {
@@ -126,8 +141,10 @@ object NativeMlsBridge {
     private external fun nativeCreateKeyPackages(userId: String, deviceId: String, count: Int): String
     private external fun nativeCreateDirectGroup(conversationId: String, userId: String, deviceId: String, keyPackagesJson: String): String
     private external fun nativeMarkWelcomePublished(conversationId: String): Boolean
-    private external fun nativeProcessIncomingMessage(conversationId: String, messageHex: String): String
-    private external fun nativeCreateApplicationMessage(conversationId: String, deviceId: String, plaintext: ByteArray): String
+    private external fun nativeProcessIncomingMessage(conversationId: String, messageId: String, messageHex: String): String
+    private external fun nativeCreateApplicationMessage(conversationId: String, deviceId: String, messageId: String, plaintext: ByteArray): String
+    private external fun nativeCachedPlaintext(conversationId: String, messageId: String): ByteArray
+    private external fun nativeMarkMessageSent(conversationId: String, messageId: String): Boolean
     private external fun nativeCloseDatabase()
     private external fun nativeClearStorageKey()
 }
