@@ -63,6 +63,30 @@ data class MessengerCiphertextRow(
 )
 
 @Serializable
+private data class DeviceUpsert(
+    val id: String,
+    @SerialName("user_id") val userId: String,
+    val label: String,
+    val credential: String,
+    @SerialName("signature_public_key") val signaturePublicKey: String,
+    @SerialName("last_seen_at") val lastSeenAt: String
+)
+
+@Serializable
+private data class DeviceIdRow(val id: String)
+
+@Serializable
+private data class KeyPackageIdRow(val id: String)
+
+@Serializable
+private data class KeyPackageInsert(
+    @SerialName("device_id") val deviceId: String,
+    @SerialName("package") val packageBytes: String,
+    @SerialName("cipher_suite") val cipherSuite: String,
+    @SerialName("expires_at") val expiresAt: String
+)
+
+@Serializable
 private data class ContactRequestInsert(
     @SerialName("requester_id") val requesterId: String,
     @SerialName("target_id") val targetId: String
@@ -146,6 +170,73 @@ class SupabaseMessengerApi {
             }
             .decodeList<MessengerContactRequest>()
         return (sent + received).distinctBy { it.id }
+    }
+
+    suspend fun deviceExists(deviceId: String): Boolean {
+        return client.from("devices")
+            .select {
+                filter { eq("id", deviceId) }
+                limit(1)
+            }
+            .decodeList<DeviceIdRow>()
+            .isNotEmpty()
+    }
+
+    suspend fun hasActiveKeyPackage(deviceId: String): Boolean {
+        val now = java.time.Instant.now().toString()
+        return client.from("key_packages")
+            .select {
+                filter {
+                    eq("device_id", deviceId)
+                    io.github.jan.supabase.postgrest.query.filter.isNull("consumed_at")
+                    io.github.jan.supabase.postgrest.query.filter.gt("expires_at", now)
+                }
+                limit(1)
+            }
+            .decodeList<KeyPackageIdRow>()
+            .isNotEmpty()
+    }
+
+    suspend fun registerDevice(
+        userId: String,
+        deviceId: String,
+        label: String,
+        bundle: DeviceEnrollmentBundle
+    ) {
+        client.from("devices").upsert(
+            DeviceUpsert(
+                id = deviceId,
+                userId = userId,
+                label = label.take(80),
+                credential = bytea(bundle.credentialHex),
+                signaturePublicKey = bytea(bundle.signaturePublicKeyHex),
+                lastSeenAt = java.time.Instant.now().toString()
+            ),
+            onConflict = "id"
+        )
+        publishKeyPackage(deviceId, bundle)
+    }
+
+    suspend fun publishKeyPackage(deviceId: String, bundle: DeviceEnrollmentBundle) {
+        client.from("key_packages").delete {
+            filter {
+                eq("device_id", deviceId)
+                io.github.jan.supabase.postgrest.query.filter.isNull("consumed_at")
+            }
+        }
+        client.from("key_packages").insert(
+            KeyPackageInsert(
+                deviceId = deviceId,
+                packageBytes = bytea(bundle.keyPackageHex),
+                cipherSuite = bundle.cipherSuite,
+                expiresAt = java.time.Instant.now().plusSeconds(7 * 24 * 60 * 60).toString()
+            )
+        )
+    }
+
+    private fun bytea(hex: String): String {
+        require(hex.isNotEmpty() && hex.length % 2 == 0 && hex.all { it in "0123456789abcdefABCDEF" })
+        return String(charArrayOf(92.toChar(), 'x')) + hex
     }
 
     suspend fun sendContactRequest(requesterId: String, targetId: String) {
