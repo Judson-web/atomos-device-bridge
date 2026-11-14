@@ -302,6 +302,68 @@ begin
 end;
 $$;
 
+create or replace function messenger.respond_contact_request(
+  p_request_id uuid,
+  p_status text
+)
+returns void
+language plpgsql
+security definer
+set search_path = pg_catalog, messenger
+as $
+begin
+  if auth.uid() is null then
+    raise exception 'authentication_required' using errcode = '28000';
+  end if;
+  if p_status not in ('accepted', 'declined') then
+    raise exception 'invalid_contact_request_status' using errcode = '22023';
+  end if;
+  update messenger.contact_requests
+     set status = p_status, updated_at = now()
+   where id = p_request_id
+     and target_id = auth.uid()
+     and status = 'pending';
+  if not found then
+    raise exception 'contact_request_not_found_or_already_resolved' using errcode = 'P0002';
+  end if;
+end;
+$;
+
+create or replace function messenger.leave_conversation(p_conversation_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = pg_catalog, messenger
+as $
+declare
+  v_user_id uuid := auth.uid();
+  v_role text;
+  v_active_members integer;
+begin
+  if v_user_id is null then
+    raise exception 'authentication_required' using errcode = '28000';
+  end if;
+  select role into v_role
+    from messenger.conversation_members
+   where conversation_id = p_conversation_id
+     and user_id = v_user_id
+     and removed_at is null
+   for update;
+  if v_role is null then
+    raise exception 'active_membership_required' using errcode = '42501';
+  end if;
+  select count(*) into v_active_members
+    from messenger.conversation_members
+   where conversation_id = p_conversation_id and removed_at is null;
+  if v_role = 'owner' and v_active_members > 1 then
+    raise exception 'owner_must_transfer_ownership_before_leaving' using errcode = '22023';
+  end if;
+  update messenger.conversation_members
+     set removed_at = now()
+   where conversation_id = p_conversation_id and user_id = v_user_id;
+end;
+$;
+
 create or replace function messenger.consume_key_package(p_cipher_suite text)
 returns table (
   package_id uuid,
@@ -463,9 +525,8 @@ create policy contact_requests_insert_self on messenger.contact_requests
          or (b.blocker_id = target_id and b.blocked_id = auth.uid())
     )
   );
-create policy contact_requests_update_target on messenger.contact_requests
-  for update to authenticated using (target_id = auth.uid())
-  with check (target_id = auth.uid());
+-- Status changes are RPC-only so a recipient cannot rewrite the requester or target.
+
 
 create policy blocks_read_self on messenger.blocks
   for select to authenticated using (blocker_id = auth.uid());
@@ -503,15 +564,19 @@ grant select on messenger.conversations, messenger.conversation_members to authe
 grant select, insert on messenger.messages to authenticated;
 grant select, insert, update on messenger.message_receipts to authenticated;
 grant select, insert on messenger.attachments to authenticated;
-grant select, insert, update on messenger.contact_requests to authenticated;
+grant select, insert on messenger.contact_requests to authenticated;
 grant select, insert, delete on messenger.blocks to authenticated;
 grant select, insert, update, delete on messenger.push_devices to authenticated;
 
 revoke all on function messenger.create_conversation(text, uuid[]) from public;
 revoke all on function messenger.add_conversation_member(uuid, uuid) from public;
+revoke all on function messenger.respond_contact_request(uuid, text) from public;
+revoke all on function messenger.leave_conversation(uuid) from public;
 revoke all on function messenger.consume_key_package(text) from public;
 grant execute on function messenger.create_conversation(text, uuid[]) to authenticated;
 grant execute on function messenger.add_conversation_member(uuid, uuid) to authenticated;
+grant execute on function messenger.respond_contact_request(uuid, text) to authenticated;
+grant execute on function messenger.leave_conversation(uuid) to authenticated;
 grant execute on function messenger.consume_key_package(text) to authenticated;
 
 comment on schema messenger is
