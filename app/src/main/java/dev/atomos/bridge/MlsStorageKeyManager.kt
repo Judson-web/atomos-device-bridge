@@ -5,6 +5,7 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import dev.atomos.bridge.messaging.NativeMlsBridge
+import java.io.File
 import java.security.KeyStore
 import java.security.SecureRandom
 import javax.crypto.Cipher
@@ -13,27 +14,38 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 /**
- * Wraps a random MLS database key with a non-exportable Android Keystore AES-GCM key.
- *
- * The random database key is passed to the native process only for the lifetime of
- * initialization. It is never written in plaintext to preferences or disk.
+ * Wraps a per-account random MLS database key with a non-exportable Android Keystore key.
+ * The database key is passed to the native process only for engine initialization.
  */
 class MlsStorageKeyManager(
     context: Context,
-    private val secureStore: SecureStore
+    private val secureStore: SecureStore,
+    accountId: String
 ) {
     private val appContext = context.applicationContext
-    private val alias = "atomos_mls_storage_wrap_v1"
-    private val secureStoreName = "mls_storage_key_wrapped"
+    private val accountSuffix = accountId.replace("-", "").lowercase().take(16).also {
+        require(it.length == 16 && it.all { char -> char.isLetterOrDigit() }) { "Invalid account identifier." }
+    }
+    private val alias = "atomos_mls_storage_wrap_$accountSuffix"
+    private val secureStoreName = "mls_storage_key_wrapped_$accountSuffix"
     private val ivBytes = 12
 
-    fun initializeNative(): Boolean {
+    fun initializeNative(databaseFile: File): Boolean {
+        NativeMlsBridge.closeDatabase()
         val storageKey = loadOrCreateStorageKey()
         return try {
-            NativeMlsBridge.initializeStorageKey(storageKey)
+            if (!NativeMlsBridge.initializeStorageKey(storageKey)) return false
+            val opened = NativeMlsBridge.openDatabase(databaseFile.absolutePath)
+            if (!opened) NativeMlsBridge.clearStorageKey()
+            opened
         } finally {
             storageKey.fill(0)
         }
+    }
+
+    fun closeNative() {
+        NativeMlsBridge.closeDatabase()
+        NativeMlsBridge.clearStorageKey()
     }
 
     private fun loadOrCreateStorageKey(): ByteArray {
@@ -41,9 +53,12 @@ class MlsStorageKeyManager(
         if (wrapped != null) {
             val packed = Base64.decode(wrapped, Base64.NO_WRAP)
             require(packed.size > ivBytes + 16) { "Wrapped MLS storage key is damaged." }
-            val key = wrappingKey(createIfMissing = false)
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-            cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, packed.copyOfRange(0, ivBytes)))
+            cipher.init(
+                Cipher.DECRYPT_MODE,
+                wrappingKey(createIfMissing = false),
+                GCMParameterSpec(128, packed.copyOfRange(0, ivBytes))
+            )
             val unwrapped = cipher.doFinal(packed.copyOfRange(ivBytes, packed.size))
             require(unwrapped.size == 32) { "Wrapped MLS storage key has an invalid length." }
             return unwrapped
