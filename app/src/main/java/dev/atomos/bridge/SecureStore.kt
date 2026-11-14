@@ -65,6 +65,22 @@ class SecureStore(context: Context) {
         }
     }
 
+    /**
+     * Strict read for cryptographic key wrappers. Unlike get(), this never deletes
+     * a corrupt value or silently converts a decryption failure into a missing key.
+     */
+    @Synchronized
+    fun getStrict(name: String): String? {
+        require(name.matches(Regex("[a-z_]{1,40}"))) { "Invalid secure-storage key." }
+        val encoded = prefs.getString(name, null) ?: return null
+        val packed = Base64.decode(encoded, Base64.NO_WRAP)
+        require(packed.size > ivLength + 16) { "Stored value is truncated." }
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, packed.copyOfRange(0, ivLength)))
+        cipher.updateAAD((aadPrefix + name).toByteArray(Charsets.UTF_8))
+        return String(cipher.doFinal(packed.copyOfRange(ivLength, packed.size)), Charsets.UTF_8)
+    }
+
     @Synchronized
     fun remove(vararg names: String) {
         prefs.edit().apply { names.forEach { remove(it) } }.commit()
