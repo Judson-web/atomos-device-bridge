@@ -148,7 +148,7 @@ mod tests {
     use serde::{Deserialize, Serialize};
     use std::sync::Mutex;
 
-    static TEST_LOCK: Mutex<()> = Mutex::new(());
+    pub(crate) static TEST_LOCK: Mutex<()> = Mutex::new(());
 
     #[derive(Debug, PartialEq, Serialize, Deserialize)]
     struct StoredState {
