@@ -78,6 +78,11 @@ object NativeMlsBridge {
         }.getOrNull()
     }
 
+    fun hasGroup(conversationId: String): Boolean = synchronized(this) {
+        if (!loaded) return false
+        runCatching { nativeHasGroup(conversationId) }.getOrDefault(false)
+    }
+
     fun markWelcomePublished(conversationId: String): Boolean = synchronized(this) {
         if (!loaded) return false
         runCatching { nativeMarkWelcomePublished(conversationId) }.getOrDefault(false)
@@ -140,6 +145,7 @@ object NativeMlsBridge {
     private external fun nativeOpenDatabase(path: String): Boolean
     private external fun nativeCreateKeyPackages(userId: String, deviceId: String, count: Int): String
     private external fun nativeCreateDirectGroup(conversationId: String, userId: String, deviceId: String, keyPackagesJson: String): String
+    private external fun nativeHasGroup(conversationId: String): Boolean
     private external fun nativeMarkWelcomePublished(conversationId: String): Boolean
     private external fun nativeProcessIncomingMessage(conversationId: String, messageId: String, messageHex: String): String
     private external fun nativeCreateApplicationMessage(conversationId: String, deviceId: String, messageId: String, plaintext: ByteArray): String
