@@ -77,7 +77,16 @@ fun PeopleDiscoveryScreen(
         }
     }
 
-    LaunchedEffect(currentUserId) { reloadContacts() }
+    LaunchedEffect(currentUserId) {
+        try {
+            api.observeContactRequests().collect {
+                reloadContacts()
+            }
+        } catch (e: Exception) {
+            status = e.message ?: "Live contact updates are unavailable."
+            reloadContacts()
+        }
+    }
 
     Column(
         modifier = Modifier
