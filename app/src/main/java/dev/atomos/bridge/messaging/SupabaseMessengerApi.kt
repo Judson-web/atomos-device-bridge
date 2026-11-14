@@ -385,16 +385,38 @@ class SupabaseMessengerApi {
         messageHex: String,
         messageId: String = java.util.UUID.randomUUID().toString()
     ): String {
-        client.from("messages").insert(
-            MessengerMessageInsert(
-                id = messageId,
-                conversationId = conversationId,
-                senderUserId = senderUserId,
-                senderDeviceId = senderDeviceId,
-                protocolVersion = 1,
-                ciphertext = bytea(messageHex)
+        require(messageId.isNotBlank() && conversationId.isNotBlank())
+        val encodedCiphertext = bytea(messageHex)
+        try {
+            client.from("messages").insert(
+                MessengerMessageInsert(
+                    id = messageId,
+                    conversationId = conversationId,
+                    senderUserId = senderUserId,
+                    senderDeviceId = senderDeviceId,
+                    protocolVersion = 1,
+                    ciphertext = encodedCiphertext
+                )
             )
-        )
+        } catch (insertError: Exception) {
+            // The request may have reached Postgres even if the client lost the response.
+            // Treat an exact existing row as success so the durable native retry queue is
+            // idempotent; never accept a reused ID with different ciphertext or ownership.
+            val existing = runCatching {
+                client.from("messages").select {
+                    filter { eq("id", messageId) }
+                    limit(1L)
+                }.decodeList<MessengerCiphertextRow>().firstOrNull()
+            }.getOrNull()
+            val isSameMessage = existing != null &&
+                existing.id == messageId &&
+                existing.conversationId == conversationId &&
+                existing.senderUserId == senderUserId &&
+                existing.senderDeviceId == senderDeviceId &&
+                existing.protocolVersion == 1 &&
+                existing.ciphertext == encodedCiphertext
+            if (!isSameMessage) throw insertError
+        }
         return messageId
     }
 
