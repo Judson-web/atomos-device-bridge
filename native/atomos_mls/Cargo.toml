@@ -15,6 +15,7 @@ openmls_rust_crypto = "=0.6.0"
 openmls_basic_credential = "=0.6.0"
 tls_codec = { version = "=0.5.0", features = ["derive", "serde", "mls"] }
 hex = "=0.4.3"
+base64 = "=0.22.1"
 openmls_sqlite_storage = "=0.3.0"
 rusqlite = { version = "=0.37.0", features = ["bundled"] }
 openmls_traits = "=0.6.0"
