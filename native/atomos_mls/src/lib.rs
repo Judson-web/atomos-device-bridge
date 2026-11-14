@@ -116,6 +116,152 @@ pub extern "system" fn Java_dev_atomos_bridge_messaging_NativeMlsBridge_nativeCr
 }
 
 #[no_mangle]
+pub extern "system" fn Java_dev_atomos_bridge_messaging_NativeMlsBridge_nativeCreateDirectGroup(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    conversation_id: JString<'_>,
+    user_id: JString<'_>,
+    device_id: JString<'_>,
+    key_packages_json: JString<'_>,
+) -> jstring {
+    let conversation_id: String = match env.get_string(&conversation_id) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let user_id: String = match env.get_string(&user_id) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let device_id: String = match env.get_string(&device_id) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let key_packages_json: String = match env.get_string(&key_packages_json) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let key_packages: Vec<String> = match serde_json::from_str(&key_packages_json) {
+        Ok(value) => value,
+        Err(_) => return std::ptr::null_mut(),
+    };
+
+    let mut slot = engine_slot().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let Some(engine) = slot.as_mut() else {
+        return std::ptr::null_mut();
+    };
+    let result = match engine.create_direct_group(
+        &conversation_id,
+        &user_id,
+        &device_id,
+        &key_packages,
+    ) {
+        Ok(value) => value,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    match env.new_string(result.to_string()) {
+        Ok(value) => value.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_dev_atomos_bridge_messaging_NativeMlsBridge_nativeMarkWelcomePublished(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    conversation_id: JString<'_>,
+) -> jboolean {
+    let conversation_id: String = match env.get_string(&conversation_id) {
+        Ok(value) => value.into(),
+        Err(_) => return JNI_FALSE,
+    };
+    let mut slot = engine_slot().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let Some(engine) = slot.as_mut() else {
+        return JNI_FALSE;
+    };
+    if engine.mark_welcome_published(&conversation_id).is_ok() {
+        JNI_TRUE
+    } else {
+        JNI_FALSE
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_dev_atomos_bridge_messaging_NativeMlsBridge_nativeProcessIncomingMessage(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    conversation_id: JString<'_>,
+    message_hex: JString<'_>,
+) -> jstring {
+    let conversation_id: String = match env.get_string(&conversation_id) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let message_hex: String = match env.get_string(&message_hex) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let message_bytes = match hex::decode(message_hex) {
+        Ok(value) => value,
+        Err(_) => return std::ptr::null_mut(),
+    };
+
+    let mut slot = engine_slot().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let Some(engine) = slot.as_mut() else {
+        return std::ptr::null_mut();
+    };
+    let result = match engine.process_incoming_message(&conversation_id, &message_bytes) {
+        Ok(value) => value,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    match env.new_string(result.to_string()) {
+        Ok(value) => value.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_dev_atomos_bridge_messaging_NativeMlsBridge_nativeCreateApplicationMessage(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    conversation_id: JString<'_>,
+    device_id: JString<'_>,
+    plaintext: JByteArray<'_>,
+) -> jstring {
+    let conversation_id: String = match env.get_string(&conversation_id) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let device_id: String = match env.get_string(&device_id) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let mut plaintext_bytes = match env.convert_byte_array(plaintext) {
+        Ok(value) => value,
+        Err(_) => return std::ptr::null_mut(),
+    };
+
+    let mut slot = engine_slot().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let Some(engine) = slot.as_mut() else {
+        plaintext_bytes.zeroize();
+        return std::ptr::null_mut();
+    };
+    let result = engine.create_application_message(
+        &conversation_id,
+        &device_id,
+        &plaintext_bytes,
+    );
+    plaintext_bytes.zeroize();
+    let message = match result {
+        Ok(value) => hex::encode(value),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    match env.new_string(message) {
+        Ok(value) => value.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
 pub extern "system" fn Java_dev_atomos_bridge_messaging_NativeMlsBridge_nativeCloseDatabase(
     _env: JNIEnv<'_>,
     _class: JClass<'_>,
