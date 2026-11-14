@@ -9,9 +9,9 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use openmls::prelude::{
     Ciphersuite, CredentialWithKey, GroupId, KeyPackage, KeyPackageIn,
     MlsGroup, MlsGroupJoinConfig, MlsMessageBodyIn, MlsMessageIn,
-    ProcessedMessageContent, ProtocolVersion, StagedWelcome, WelcomeError,
+    BasicCredential, ProcessedMessageContent, ProtocolVersion, StagedWelcome, WelcomeError,
 };
-use openmls_basic_credential::{BasicCredential, SignatureKeyPair};
+use openmls_basic_credential::SignatureKeyPair;
 use openmls_rust_crypto::RustCrypto;
 use openmls_sqlite_storage::{Codec, SqliteStorageProvider};
 use openmls_traits::OpenMlsProvider;
@@ -25,7 +25,7 @@ pub type EngineResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
 pub struct AtomosProvider<'a> {
     crypto: &'a RustCrypto,
-    storage: SqliteStorageProvider<'a, EncryptedCodec>,
+    storage: SqliteStorageProvider<EncryptedCodec, &'a mut Connection>,
 }
 
 impl<'a> AtomosProvider<'a> {
@@ -40,7 +40,7 @@ impl<'a> AtomosProvider<'a> {
 impl<'a> OpenMlsProvider for AtomosProvider<'a> {
     type CryptoProvider = RustCrypto;
     type RandProvider = RustCrypto;
-    type StorageProvider = SqliteStorageProvider<'a, EncryptedCodec>;
+    type StorageProvider = SqliteStorageProvider<EncryptedCodec, &'a mut Connection>;
 
     fn storage(&self) -> &Self::StorageProvider {
         &self.storage
@@ -79,7 +79,7 @@ impl AtomosMlsEngine {
         )?;
 
         {
-            let mut storage = SqliteStorageProvider::<EncryptedCodec>::new(&mut connection);
+            let mut storage = SqliteStorageProvider::<EncryptedCodec, &mut Connection>::new(&mut connection);
             storage.run_migrations()?;
         }
 
