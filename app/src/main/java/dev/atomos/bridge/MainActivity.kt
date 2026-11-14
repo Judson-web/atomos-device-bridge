@@ -3,6 +3,7 @@ package dev.atomos.bridge
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.Build
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -31,6 +32,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
+import dev.atomos.bridge.messaging.MessagingInboxScreen
+import dev.atomos.bridge.messaging.PeopleDiscoveryScreen
+import dev.atomos.bridge.messaging.SharedMediaScreen
+import dev.atomos.bridge.messaging.ConversationSetupScreen
+import dev.atomos.bridge.messaging.SupabaseMessengerApi
+import dev.atomos.bridge.messaging.NativeMlsBridge
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.math.roundToInt
@@ -71,22 +78,55 @@ private fun copyUriToCache(context: android.content.Context, uri: Uri, displayNa
 }
 
 class MainActivity : ComponentActivity() {
+    private var authCallback by mutableStateOf<Uri?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
+        authCallback = intent?.data
         val store = SecureStore(this)
-        store.remove("access", "refresh", "oauth_verifier")
-        setContent { AtomosApp(store, lifecycleScope) }
+        setContent {
+            AtomosApp(
+                store = store,
+                activityScope = lifecycleScope,
+                callback = authCallback,
+                clearCallback = { authCallback = null },
+                openBrowser = { url -> startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+            )
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        authCallback = intent.data
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AtomosApp(store: SecureStore, activityScope: CoroutineScope) {
+private fun AtomosApp(
+    store: SecureStore,
+    activityScope: CoroutineScope,
+    callback: Uri?,
+    clearCallback: () -> Unit,
+    openBrowser: (String) -> Unit
+) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val auth = remember { SupabaseAuth() }
+    val messengerApi = remember { SupabaseMessengerApi() }
+    var mlsStorageStatus by remember { mutableStateOf("Local MLS storage is not initialized.") }
+    var activeDeviceId by remember { mutableStateOf<String?>(null) }
+    var activeConversationId by remember { mutableStateOf<String?>(null) }
+    var user by remember { mutableStateOf<AuthUser?>(null) }
+    var access by remember { mutableStateOf(store.get("access")) }
+    var authState by remember { mutableStateOf(if (access.isNullOrBlank()) "signed_out" else "checking") }
+    var authError by remember { mutableStateOf<String?>(null) }
+    var authLaunching by remember { mutableStateOf(false) }
     // Activity-owned work survives temporary Compose screen removal during system pickers and dialogs.
     val monitor = remember { NetworkMonitor(context) }
-    var page by remember { mutableStateOf("Files") }
+    var page by remember { mutableStateOf("Chats") }
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("Ready") }
     var network by remember { mutableStateOf(NetworkSnapshot(false, "Offline", false, 0, 0, "")) }
@@ -104,6 +144,155 @@ private fun AtomosApp(store: SecureStore, activityScope: CoroutineScope) {
     fun refreshFiles(dir: DocumentFile?) {
         entries = dir?.listFiles()?.sortedWith(compareByDescending<DocumentFile> { it.isDirectory }.thenBy { it.name?.lowercase() })?.toList().orEmpty()
     }
+    LaunchedEffect(callback) {
+        val uri = callback ?: return@LaunchedEffect
+        authState = "checking"
+        authLaunching = false
+        val code = uri.getQueryParameter("code")
+        val oauthError = uri.getQueryParameter("error_description") ?: uri.getQueryParameter("error")
+        val verifier = store.get("oauth_verifier")
+        try {
+            if (!oauthError.isNullOrBlank()) error(oauthError)
+            require(!code.isNullOrBlank() && !verifier.isNullOrBlank()) {
+                "Discord sign-in could not be completed."
+            }
+            val tokens = withContext(Dispatchers.IO) { auth.exchange(code, verifier) }
+            val profile = withContext(Dispatchers.IO) { auth.user(tokens.access) }
+            store.put("access", tokens.access)
+            store.put("refresh", tokens.refresh)
+            store.remove("oauth_verifier")
+            access = tokens.access
+            user = profile
+            authState = "authenticated"
+            authError = null
+            status = "Signed in with Discord."
+        } catch (e: Exception) {
+            store.remove("access", "refresh", "oauth_verifier")
+            access = null
+            user = null
+            authState = "signed_out"
+            authError = e.message ?: "Please try again."
+            status = "Authentication failed."
+        }
+        clearCallback()
+    }
+    suspend fun initializeMessagingDevice(profile: AuthUser): String {
+        activeDeviceId = null
+        val manager = MlsStorageKeyManager(store, profile.id)
+        val database = File(context.filesDir, "atomos_mls_${profile.id.replace("-", "")}.db")
+        val deviceId = manager.deviceIdOrCreate()
+
+        // A revoked device's local MLS groups still contain its old signing identity.
+        // Rotating only the server device ID would mislabel messages signed by that
+        // revoked identity. Fail closed until the group-rekey/recovery flow exists.
+        if (messengerApi.deviceIsRevoked(deviceId)) {
+            return "This device was revoked. Messaging is locked until its conversations are re-keyed and a new device enrollment is completed."
+        }
+
+        if (!withContext(Dispatchers.IO) { manager.initializeNative(database) }) {
+            return "Encrypted native MLS storage is unavailable in this build."
+        }
+        if (!messengerApi.deviceExists(deviceId)) {
+            val bundles = withContext(Dispatchers.IO) {
+                manager.createDeviceKeyPackages(profile.id, deviceId, 10)
+            } ?: error("Unable to create device MLS KeyPackages.")
+            messengerApi.registerDevice(
+                userId = profile.id,
+                deviceId = deviceId,
+                label = Build.MODEL.ifBlank { "Android device" },
+                bundles = bundles
+            )
+        } else if (messengerApi.activeKeyPackageCount(deviceId) < 5) {
+            val bundles = withContext(Dispatchers.IO) {
+                manager.createDeviceKeyPackages(profile.id, deviceId, 10)
+            } ?: error("Unable to renew device MLS KeyPackages.")
+            messengerApi.publishKeyPackages(deviceId, bundles)
+        }
+        activeDeviceId = deviceId
+        return "Device enrolled; encrypted MLS storage and a pool of one-time KeyPackages are ready."
+    }
+
+    LaunchedEffect(access) {
+        if (callback != null) return@LaunchedEffect
+        val token = access
+        if (token.isNullOrBlank()) {
+            user = null
+            authState = "signed_out"
+            return@LaunchedEffect
+        }
+        authState = "checking"
+        try {
+            val profile = withContext(Dispatchers.IO) { auth.user(token) }
+            user = profile
+            withContext(Dispatchers.IO) { messengerApi.importSession(token, store.get("refresh").orEmpty()) }
+            mlsStorageStatus = try {
+                initializeMessagingDevice(profile)
+            } catch (e: Exception) {
+                "Secure device enrollment failed: ${e.message ?: "unknown error"}"
+            }
+            authState = "authenticated"
+            authError = null
+        } catch (_: Exception) {
+            val refreshToken = store.get("refresh")
+            if (refreshToken != null) {
+                try {
+                    val tokens = withContext(Dispatchers.IO) { auth.refresh(refreshToken) }
+                    val profile = withContext(Dispatchers.IO) { auth.user(tokens.access) }
+                    store.put("access", tokens.access)
+                    store.put("refresh", tokens.refresh)
+                    withContext(Dispatchers.IO) { messengerApi.importSession(tokens.access, tokens.refresh) }
+                    mlsStorageStatus = try {
+                        initializeMessagingDevice(profile)
+                    } catch (enrollmentError: Exception) {
+                        "Secure device enrollment failed: ${enrollmentError.message ?: "unknown error"}"
+                    }
+                    access = tokens.access
+                    user = profile
+                    authState = "authenticated"
+                    authError = null
+                } catch (e: Exception) {
+                    store.remove("access", "refresh")
+                    access = null
+                    user = null
+                    authState = "signed_out"
+                    authError = e.message ?: "Your session expired. Sign in again."
+                }
+            } else {
+                store.remove("access")
+                access = null
+                user = null
+                authState = "signed_out"
+            }
+        }
+    }
+    val beginSignIn: () -> Unit = {
+        scope.launch {
+            authError = null
+            authLaunching = true
+            try {
+                val verifier = auth.verifier()
+                store.put("oauth_verifier", verifier)
+                openBrowser(auth.discordUrl(verifier))
+                authLaunching = false
+            } catch (e: Exception) {
+                authLaunching = false
+                authError = e.message ?: "Unable to start Discord sign-in."
+            }
+        }
+    }
+    val signOut: () -> Unit = {
+        scope.launch { messengerApi.signOut() }
+        NativeMlsBridge.closeDatabase()
+        NativeMlsBridge.clearStorageKey()
+        activeDeviceId = null
+        store.remove("access", "refresh", "oauth_verifier")
+        access = null
+        user = null
+        authState = "signed_out"
+        authError = null
+        status = "Signed out."
+    }
+
     val treePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
             runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION) }
@@ -169,22 +358,31 @@ private fun AtomosApp(store: SecureStore, activityScope: CoroutineScope) {
     }
     LaunchedEffect(folderUri) { currentDirectory = folderUri?.let { DocumentFile.fromTreeUri(context, it) }; refreshFiles(currentDirectory) }
     MaterialTheme(colorScheme = darkColorScheme(primary = Violet, background = Background, surface = SurfaceDark)) {
-        Scaffold(
+        if (authState == "checking") {
+            AuthLoadingScreen()
+        } else if (authState != "authenticated" || user == null) {
+            AuthGateScreen(error = authError, launching = authLaunching, onSignIn = beginSignIn)
+        } else Scaffold(
             containerColor = Background,
             topBar = {
-                if (page != "Files") CenterAlignedTopAppBar(
+                if (page !in setOf("Files", "Chats", "People", "Media", "Conversation")) CenterAlignedTopAppBar(
                     title = { Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("ATOMOS", fontWeight = FontWeight.Black, letterSpacing = 3.sp, fontSize = 16.sp)
-                        Text(if (network.connected) "${network.transport} · ↓ ${formatRate(network.downloadBps)} · ↑ ${formatRate(network.uploadBps)}" else "No internet connection", style = MaterialTheme.typography.labelSmall, color = if (network.connected) Violet else MaterialTheme.colorScheme.error)
+                        Text(if (page == "Chats") "MESSAGES" else "ATOMOS", fontWeight = FontWeight.Black, letterSpacing = 3.sp, fontSize = 16.sp)
+                        Text(if (page == "Chats") "SECURE MESSAGING SETUP" else if (network.connected) "${network.transport} · ↓ ${formatRate(network.downloadBps)} · ↑ ${formatRate(network.uploadBps)}" else "No internet connection", style = MaterialTheme.typography.labelSmall, color = if (page == "Chats" || network.connected) Violet else MaterialTheme.colorScheme.error)
                     } },
                     actions = { Text(if (network.validated) "●" else "○", color = if (network.validated) Violet else MaterialTheme.colorScheme.error, modifier = Modifier.padding(end = 18.dp)) },
                     colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Background, titleContentColor = MaterialTheme.colorScheme.onBackground)
                 )
             },
             bottomBar = {
-                if (page != "Files") NavigationBar(containerColor = SurfaceDark) {
-                    listOf("Home", "Network", "Files", "Storage", "Installer", "Settings").forEach { item ->
-                        NavigationBarItem(selected = page == item, onClick = { page = item }, icon = { Text(when(item) { "Home" -> "⌂"; "Network" -> "⌁"; "Files" -> "▤"; "Storage" -> "◫"; "Installer" -> "⬇"; else -> "⚙" }) }, label = { Text(item) })
+                if (page != "Files" && page != "Conversation") NavigationBar(containerColor = SurfaceDark) {
+                    listOf("Chats", "People", "Media", "Tools", "Files", "Profile").forEach { item ->
+                        NavigationBarItem(
+                            selected = page == item,
+                            onClick = { page = item },
+                            icon = { Text(when(item) { "Chats" -> "✉"; "People" -> "◎"; "Media" -> "▧"; "Tools" -> "⌘"; "Files" -> "▤"; else -> "⚙" }) },
+                            label = { Text(item) }
+                        )
                     }
                 }
             }
@@ -207,9 +405,28 @@ private fun AtomosApp(store: SecureStore, activityScope: CoroutineScope) {
                         }
                     }
                 )
-            } else Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 18.dp)) {
+            } else Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = if (page == "Chats" || page == "Conversation") 0.dp else 18.dp)) {
                 when (page) {
-                    "Home" -> HomePage(network, status, onNetwork = { page = "Network" }, onFiles = { page = "Files" }, onInstaller = { page = "Installer" }, onSpeed = { page = "Network" }, onStorage = { page = "Storage" })
+                    "Home" -> HomePage(network, status, onNetwork = { page = "Network" }, onFiles = { page = "Files" }, onInstaller = { page = "Installer" }, onSpeed = { page = "Network" }, onStorage = { page = "Storage" }, onChats = { page = "Chats" })
+                    "Chats" -> MessagingInboxScreen(
+                        api = messengerApi,
+                        userId = user!!.id,
+                        storageStatus = mlsStorageStatus,
+                        onPeople = { page = "People" },
+                        onOpenConversation = { id -> activeConversationId = id; page = "Conversation" }
+                    )
+                    "Conversation" -> activeConversationId?.let { id ->
+                        ConversationSetupScreen(conversationId = id, api = messengerApi, userId = user!!.id, deviceId = activeDeviceId.orEmpty(), onBack = { page = "Chats" })
+                    }
+                    "People" -> PeopleDiscoveryScreen(
+                        api = messengerApi,
+                        currentUserId = user!!.id,
+                        currentDeviceId = activeDeviceId.orEmpty(),
+                        onConversationCreated = { id -> activeConversationId = id; page = "Conversation" }
+                    )
+                    "Media" -> SharedMediaScreen(onBrowseLocalFiles = { page = "Files" })
+                    "Profile" -> ProfileScreen(user!!, network.ipAddress, status, signOut)
+                    "Tools" -> HomePage(network, status, onNetwork = { page = "Network" }, onFiles = { page = "Files" }, onInstaller = { page = "Installer" }, onSpeed = { page = "Network" }, onStorage = { page = "Storage" }, onChats = { page = "Chats" })
                     "Network" -> NetworkPage(network, speedResult, speedBusy, speedProgress) {
                         if (!speedBusy) activityScope.launch {
                             speedBusy = true; speedProgress = 0f
@@ -222,14 +439,16 @@ private fun AtomosApp(store: SecureStore, activityScope: CoroutineScope) {
                     "Installer" -> InstallerPage(status, busy, { filePicker.launch(arrayOf("*/*")) }, { status = "Supported: APK, APKM, APKS, APKX and XAPK. Split archives are installed as one package session." })
                     "Settings" -> SettingsPage(status, network.ipAddress)
                 }
-                Spacer(Modifier.height(8.dp))
-                Text(status, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 8.dp))
+                if (page !in setOf("Chats", "Conversation", "People", "Media")) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(status, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 8.dp))
+                }
             }
         }
     }
 }
 
-@Composable private fun HomePage(n: NetworkSnapshot, status: String, onNetwork: () -> Unit, onFiles: () -> Unit, onInstaller: () -> Unit, onSpeed: () -> Unit, onStorage: () -> Unit) {
+@Composable private fun HomePage(n: NetworkSnapshot, status: String, onNetwork: () -> Unit, onFiles: () -> Unit, onInstaller: () -> Unit, onSpeed: () -> Unit, onStorage: () -> Unit, onChats: () -> Unit) {
     LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 18.dp)) {
         item { Text("Your device, at a glance.", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
         item { Card(colors = CardDefaults.cardColors(containerColor = SurfaceDark), shape = RoundedCornerShape(24.dp)) {
@@ -243,6 +462,7 @@ private fun AtomosApp(store: SecureStore, activityScope: CoroutineScope) {
                 Text("Live device connectivity and throughput", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } }
+        item { UtilityCard("Messages", "Private conversations and encrypted media sharing", "✉", onChats) }
         item { UtilityCard("Network monitor", "Live connection, throughput, IP and speed test", "↗", onNetwork) }
         item { UtilityCard("File manager", "Browse folders, organize and inspect files", "▤", onFiles) }
         item { UtilityCard("Storage insights", "See available space, file categories and large files", "◫", onStorage) }

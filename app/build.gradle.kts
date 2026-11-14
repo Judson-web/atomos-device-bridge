@@ -1,4 +1,4 @@
-plugins { id("com.android.application"); id("org.jetbrains.kotlin.plugin.compose") }
+plugins { id("com.android.application"); id("org.jetbrains.kotlin.plugin.compose"); id("org.jetbrains.kotlin.plugin.serialization") }
 android {
  namespace = "dev.atomos.bridge"
  compileSdk = 37
@@ -7,6 +7,8 @@ android {
   applicationId = "dev.atomos.bridge"
   minSdk = 29
   targetSdk = 37
+  buildConfigField("String", "SUPABASE_URL", "\"https://swvlujplpqfppnhdhxyf.supabase.co\"")
+  buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"sb_publishable_mNuobCwjLhFaqdQ03faipw_WYmrt0Ni\"")
   versionCode = 23
   versionName = "1.1.0"
  }
@@ -24,6 +26,12 @@ android {
  compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
 }
 dependencies {
+ implementation(platform("io.github.jan-tennert.supabase:bom:3.5.0"))
+ implementation("io.github.jan-tennert.supabase:auth-kt")
+ implementation("io.github.jan-tennert.supabase:postgrest-kt")
+ implementation("io.github.jan-tennert.supabase:realtime-kt")
+ implementation("io.github.jan-tennert.supabase:storage-kt")
+ implementation("io.ktor:ktor-client-android:3.0.3")
  implementation(platform("androidx.compose:compose-bom:2024.12.01"))
  implementation("androidx.activity:activity-compose:1.10.0")
  implementation("androidx.compose.ui:ui")

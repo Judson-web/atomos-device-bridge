@@ -1,71 +1,44 @@
-# Atomos
+# Atomos Messenger
 
-Atomos is a **local-first Android utility app for a personally managed device**. It provides a file manager, built-in file viewers, ZIP tools, network diagnostics and a user-confirmed APK installer.
+Atomos is evolving into a privacy-first Android messaging app while retaining and repurposing its existing on-device utility capabilities.
 
-## Local-only design
+## Product direction
 
-- No account, OAuth flow, sign-in gate, device pairing or cloud command channel is used by the Android app.
-- The app does not request SMS, contacts, call-log, accessibility, notification-listener or background remote-control permissions.
-- On Android 11 and newer, users can optionally grant Android's special **All files access** permission to browse and manage shared internal storage. This requires explicit approval in system Settings and is never granted silently.
-- Without that permission, Atomos uses the Storage Access Framework and only accesses folders the user selects. Removable SD cards and USB storage can be opened through the folder picker when exposed by the device. Android continues to restrict protected app-private and system locations, including parts of `Android/data` and `Android/obb`.
-- Selected Storage Access Framework locations are saved in encrypted app preferences backed by the Android Keystore. Android's persisted URI permission remains the authority for those locations. All-files access is checked against Android system settings whenever the file manager is opened.
-- File contents and archive contents are processed on-device. The only built-in network transfer is the optional speed test described below.
+Atomos will provide private and group conversations, media and document sharing, profiles, notifications and a unified attachment library. Its existing file manager, image/video/audio viewers, text editor, ZIP tools, HTML viewer, package inspection/installer and network diagnostics remain part of the product as messaging capabilities.
 
-## Features
+An experimental messaging foundation is now present on this branch: Discord PKCE sign-in, profile discovery and contact requests, direct-conversation bootstrap, ciphertext transport, a native OpenMLS bridge, and encrypted local MLS state. The Rust protocol test exercises a real two-client Welcome and application-message round trip. This is an integration milestone, not a production-secure messenger. Group membership changes, encrypted attachments, device lifecycle and recovery, durable push delivery, Android device interoperability, and independent security review remain incomplete. Do not treat the app as production-verified E2EE until every release gate in the architecture documents passes.
 
-### File manager
-- Read-only storage insights dashboard with free/used capacity, category totals, and largest discovered files (bounded scan; never deletes automatically).
-- Browse folders granted by the user, with breadcrumbs and back navigation.
-- Search the current folder, filter by file category, show or hide dotfiles, and sort by name, size or modification time.
-- Switch between list and grid layouts.
-- Create folders, rename, inspect details, copy and move files, and delete with a confirmation prompt.
-- Compress files or folders into ZIP archives and extract ZIP archives into the current folder.
-- ZIP operations reject unsafe paths and enforce limits for entry count, folder depth and expanded data. Compression excludes its own output file when the destination is inside the source folder.
+## Existing Android capabilities to preserve
 
-### Built-in viewers
-- Image preview with down-sampled decoding to keep memory use bounded.
-- UTF-8 text editor for common text and source formats.
-- Offline HTML viewer with JavaScript and network loading disabled.
-- Audio and video playback through AndroidX Media3.
-- ZIP content listing with bounded preview work.
+- File manager with user-granted Storage Access Framework locations, bounded scans and explicit file operations.
+- Image preview, UTF-8 text editor and offline HTML viewer.
+- Audio/video playback using AndroidX Media3.
+- ZIP listing, compression and extraction with bounded resource limits and path traversal protections.
+- APK/APKM/APKS/APKX/XAPK inspection and user-confirmed Android PackageInstaller handoff.
+- Network state, throughput diagnostics and explicitly user-initiated speed test.
 
-Text and ZIP previews are limited to 32 MB of source data. ZIP listing also has a 64 MB expanded-data budget. Large files can be opened with another installed app where supported.
+These capabilities will be integrated through narrow attachment and preview interfaces. Chat screens must not gain unrestricted filesystem access.
 
-### Network
-- Current connection type, validated internet state, IP address and device-wide RX/TX throughput.
-- Optional speed test using Cloudflare's public speed.cloudflare.com measurement endpoint. A test transfers approximately 25 MB for download and 5 MB for upload, so it uses mobile data when run over a cellular connection.
+## Security direction
 
-### Package installer
-- Supports APK, APKM, APKS, APKX and XAPK archives.
-- Split APKs are staged into a single Android PackageInstaller session.
-- Archive inspection is bounded to 20,000 entries, 32 APK splits and 1 GB of expanded APK data.
-- Android owns the final install confirmation. Atomos never silently bypasses the system installer.
+- Use MLS (RFC 9420) through the pinned OpenMLS Rust implementation. Do not write custom cryptographic primitives or protocol logic. Kotlin and Rust glue is application integration, not a replacement cipher or ratchet.
+- Generate and protect private keys on device; encrypt message bodies and attachment contents before upload.
+- Store ciphertext, not plaintext conversations or media, on messaging infrastructure.
+- Keep push notifications free of message content.
+- Apply strict server-side authorization and row-level security.
+- Make device enrollment, key changes, backup and recovery explicit and visible.
+- Do not claim E2EE until the documented security release gate has passed.
+
+See docs/MESSENGER_ARCHITECTURE.md for the architecture and docs/CRYPTO_PROTOCOL_DECISION.md for the MLS/OpenMLS decision, Android native integration requirements and security gates. The native crate currently provides a runtime handshake and an OpenMLS two-client round-trip test; production key lifecycle, group persistence and message transport are still under implementation.
 
 ## Platform and build
 
 - Android 10 (API 29) and newer.
 - Kotlin, Jetpack Compose and AndroidX Media3.
-- JDK 17, Android SDK 35 and Gradle 8.9.
-- Build locally with `gradle :app:assembleDebug` or `gradle :app:assembleRelease`.
-- GitHub Actions builds debug APKs on pull requests and signed release APKs on pushes to `main` or version tags. ABI-specific and universal APKs are produced.
-
-## Release signing
-
-Release builds retain the existing Atomos signing identity. GitHub Actions expects these repository secrets:
-
-- `ANDROID_SIGNING_KEY_BASE64`
-- `ANDROID_SIGNING_STORE_PASSWORD`
-- `ANDROID_SIGNING_KEY_ALIAS`
-- `ANDROID_SIGNING_KEY_PASSWORD`
-
-Do not generate a replacement keystore for routine releases. Losing the existing signing key would prevent seamless updates over already installed signed builds.
+- JDK 17 for Android/Gradle, Android SDK 37 and NDK 27.2.12479018 for the native bridge, and Rust 1.91+ for OpenMLS 0.9.2.
+- Existing application ID: dev.atomos.bridge.
+- Preserve the established Atomos release signing identity. Do not generate a replacement keystore for routine releases.
 
 ## Legacy backend files
 
-The `supabase/migrations` directory contains historical migrations from an earlier device-bridge prototype. They are retained for audit/history and are **not required by this local Android app**. Do not apply them to a new project for the local-only app. The retired `atomos-device-bridge` Edge Function is represented by a 410 Gone stub; no Android feature calls it. The separate legacy `atomos-app-api` endpoint is not part of this repository or used by this app.
-
-## Privacy and platform behavior
-
-- The Android manifest requests internet access, network-state access, package-install permission and `MANAGE_EXTERNAL_STORAGE`. The latter is optional and only takes effect after the user explicitly approves it in Android Settings.
-- Network activity occurs only for the optional speed test and for opening unsupported file types in an external app chosen by the user.
-- Package installation and external file opening remain subject to Android's own user prompts and permission model.
+The old device-bridge migrations and retired Edge Function remain historical and must not be revived. The new isolated `messenger` schema migration is a draft for a separately approved Supabase project. It has not been deployed. Before applying it, review the target project's auth provider, add `messenger` to the PostgREST exposed schemas, verify storage and Realtime settings, run RLS tests, and confirm the project contains no unrelated production data that could be affected.

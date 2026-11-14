@@ -2,7 +2,7 @@ name: Build Android APK
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, 'feat/**']
     tags: ['v*']
   pull_request:
     branches: [main, develop]
@@ -49,6 +49,52 @@ jobs:
           else
             echo "Android SDK 37.0 and Build Tools 37.0.0 already installed; skipping download."
           fi
+
+      - name: Install Android NDK for OpenMLS
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          "$SDKMANAGER" "ndk;27.2.12479018"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+
+      - name: Install Rust 1.91 and Android targets
+        uses: dtolnay/rust-toolchain@1.91.0
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+
+      - name: Resolve and test OpenMLS native bridge
+        working-directory: native/atomos_mls
+        run: |
+          cargo generate-lockfile
+          cargo test --locked
+
+      - name: Build OpenMLS native libraries for Android
+        working-directory: native/atomos_mls
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$TOOLCHAIN/aarch64-linux-android24-clang"
+          export CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER="$TOOLCHAIN/armv7a-linux-androideabi24-clang"
+          export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$TOOLCHAIN/x86_64-linux-android24-clang"
+          export CC_aarch64_linux_android="$TOOLCHAIN/aarch64-linux-android24-clang"
+          export CC_armv7_linux_androideabi="$TOOLCHAIN/armv7a-linux-androideabi24-clang"
+          export CC_x86_64_linux_android="$TOOLCHAIN/x86_64-linux-android24-clang"
+          export AR_aarch64_linux_android="$TOOLCHAIN/llvm-ar"
+          export AR_armv7_linux_androideabi="$TOOLCHAIN/llvm-ar"
+          export AR_x86_64_linux_android="$TOOLCHAIN/llvm-ar"
+
+          cargo build --locked --release --target aarch64-linux-android
+          cargo build --locked --release --target armv7-linux-androideabi
+          cargo build --locked --release --target x86_64-linux-android
+
+          mkdir -p ../../app/src/main/jniLibs/arm64-v8a
+          mkdir -p ../../app/src/main/jniLibs/armeabi-v7a
+          mkdir -p ../../app/src/main/jniLibs/x86_64
+          cp target/aarch64-linux-android/release/libatomos_mls_bridge.so ../../app/src/main/jniLibs/arm64-v8a/
+          cp target/armv7-linux-androideabi/release/libatomos_mls_bridge.so ../../app/src/main/jniLibs/armeabi-v7a/
+          cp target/x86_64-linux-android/release/libatomos_mls_bridge.so ../../app/src/main/jniLibs/x86_64/
 
       - name: Set up Gradle 9.3.1 with dependency cache
         uses: gradle/actions/setup-gradle@v6
@@ -177,9 +223,45 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          debug_apk="$(find app/build/outputs/apk/debug -type f -name '*.apk' -print -quit)"
+          test -n "$debug_apk"
           test "$(find app/build/outputs/apk/debug -type f -name '*.apk' | wc -l)" -eq 1
+
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/37.0.0"
+          APKSIGNER="$BUILD_TOOLS/apksigner"
+          AAPT="$BUILD_TOOLS/aapt"
+          ZIPALIGN="$BUILD_TOOLS/zipalign"
+          test -x "$APKSIGNER"
+          test -x "$AAPT"
+          test -x "$ZIPALIGN"
+
+          "$APKSIGNER" verify --verbose "$debug_apk"
+          "$ZIPALIGN" -c -v 4 "$debug_apk"
+
           if [[ "$GITHUB_REF" == refs/tags/v* || ("$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF" == "refs/heads/main") ]]; then
             test "$(find app/build/outputs/apk/release -type f -name '*.apk' | wc -l)" -eq 1
+            release_apk="$(find app/build/outputs/apk/release -type f -name '*.apk' -print -quit)"
+
+            # Verify the APK signature, alignment and actual manifest identity
+            # before allowing it to be attached to a GitHub Release.
+            signature_report="$("$APKSIGNER" verify --verbose --print-certs "$release_apk" 2>&1)"
+            printf '%s\n' "$signature_report"
+            "$ZIPALIGN" -c -v 4 "$release_apk"
+            badging="$("$AAPT" dump badging "$release_apk")"
+            grep -F "package: name='dev.atomos.bridge'" <<<"$badging"
+            grep -F "sdkVersion:'29'" <<<"$badging"
+            sha256sum "$release_apk"
+
+            {
+              echo "### Release APK verification"
+              echo 'Signature verification: passed'
+              printf '%s\n' "$signature_report"
+              echo 'Package: dev.atomos.bridge'
+              echo 'Minimum SDK: 29'
+              echo 'Alignment: verified (4-byte)'
+              echo 'APK SHA-256:'
+              sha256sum "$release_apk"
+            } >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Upload debug APK artifact
