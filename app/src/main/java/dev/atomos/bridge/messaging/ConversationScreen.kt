@@ -76,6 +76,7 @@ fun ConversationSetupScreen(
     var loading by remember { mutableStateOf(true) }
     var sending by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("Connecting securely…") }
+    var conversationTitle by remember(conversationId) { mutableStateOf("Conversation") }
     val secureGroupReady = NativeMlsBridge.hasGroup(conversationId)
 
     suspend fun consume(rows: List<MessengerCiphertextRow>) {
@@ -115,6 +116,10 @@ fun ConversationSetupScreen(
             return@LaunchedEffect
         }
         try {
+            conversationTitle = withContext(Dispatchers.IO) {
+                api.conversationSummaries().firstOrNull { it.id == conversationId }?.participantNames
+                    ?.ifBlank { "Conversation" } ?: "Conversation"
+            }
             val initial = withContext(Dispatchers.IO) { api.encryptedMessages(conversationId) }
             consume(initial)
             status = if (NativeMlsBridge.hasGroup(conversationId)) {
@@ -167,10 +172,10 @@ fun ConversationSetupScreen(
                 Modifier.size(43.dp).background(Color(0xFF292442), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                Text("A", color = ChatAccent, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+                Text(conversationTitle.firstOrNull()?.uppercaseChar()?.toString() ?: "A", color = ChatAccent, fontWeight = FontWeight.Bold, fontSize = 19.sp)
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text("Conversation", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                Text(conversationTitle, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, maxLines = 1)
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                     Box(Modifier.size(6.dp).background(if (secureGroupReady) Color(0xFF70D7AE) else Color(0xFFE0B56B), CircleShape))
                     Text(status, color = ChatMuted, fontSize = 10.sp, maxLines = 1)
