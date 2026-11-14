@@ -1,5 +1,6 @@
 package dev.atomos.bridge.messaging
 
+import android.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -11,6 +12,9 @@ import org.json.JSONObject
  * application messages; message composition remains disabled until those operations
  * and their persistence/interoperability tests are implemented and reviewed.
  */
+data class DirectGroupResult(val welcomeHex: String?, val alreadyInitialized: Boolean)
+data class IncomingMessageResult(val kind: String, val plaintext: ByteArray?)
+
 data class DeviceEnrollmentBundle(
     val credentialHex: String,
     val signaturePublicKeyHex: String,
@@ -51,6 +55,49 @@ object NativeMlsBridge {
         }.getOrNull()
     }
 
+    fun createDirectGroup(
+        conversationId: String,
+        userId: String,
+        deviceId: String,
+        keyPackageHex: List<String>
+    ): DirectGroupResult? = synchronized(this) {
+        if (!loaded || keyPackageHex.isEmpty()) return null
+        runCatching {
+            val result = JSONObject(
+                nativeCreateDirectGroup(
+                    conversationId,
+                    userId,
+                    deviceId,
+                    JSONArray(keyPackageHex).toString()
+                )
+            )
+            DirectGroupResult(
+                welcomeHex = result.optString("welcome_hex").takeIf { it.isNotBlank() },
+                alreadyInitialized = result.optBoolean("already_initialized", false)
+            )
+        }.getOrNull()
+    }
+
+    fun markWelcomePublished(conversationId: String): Boolean = synchronized(this) {
+        if (!loaded) return false
+        runCatching { nativeMarkWelcomePublished(conversationId) }.getOrDefault(false)
+    }
+
+    fun processIncomingMessage(conversationId: String, messageHex: String): IncomingMessageResult? = synchronized(this) {
+        if (!loaded) return null
+        runCatching {
+            val result = JSONObject(nativeProcessIncomingMessage(conversationId, messageHex))
+            val plaintext = result.optString("plaintext_base64").takeIf { it.isNotBlank() }
+                ?.let { Base64.decode(it, Base64.NO_WRAP) }
+            IncomingMessageResult(result.getString("kind"), plaintext)
+        }.getOrNull()
+    }
+
+    fun createApplicationMessage(conversationId: String, deviceId: String, plaintext: ByteArray): String? = synchronized(this) {
+        if (!loaded) return null
+        runCatching { nativeCreateApplicationMessage(conversationId, deviceId, plaintext) }.getOrNull()
+    }
+
     fun openDatabase(path: String): Boolean = synchronized(this) {
         if (!loaded) return false
         runCatching { nativeOpenDatabase(path) }.getOrDefault(false)
@@ -77,6 +124,10 @@ object NativeMlsBridge {
     private external fun nativeInitializeStorageKey(key: ByteArray): Boolean
     private external fun nativeOpenDatabase(path: String): Boolean
     private external fun nativeCreateKeyPackages(userId: String, deviceId: String, count: Int): String
+    private external fun nativeCreateDirectGroup(conversationId: String, userId: String, deviceId: String, keyPackagesJson: String): String
+    private external fun nativeMarkWelcomePublished(conversationId: String): Boolean
+    private external fun nativeProcessIncomingMessage(conversationId: String, messageHex: String): String
+    private external fun nativeCreateApplicationMessage(conversationId: String, deviceId: String, plaintext: ByteArray): String
     private external fun nativeCloseDatabase()
     private external fun nativeClearStorageKey()
 }
