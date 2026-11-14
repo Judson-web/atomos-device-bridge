@@ -32,6 +32,8 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
 import dev.atomos.bridge.messaging.MessagingInboxScreen
+import dev.atomos.bridge.messaging.PeopleDiscoveryScreen
+import dev.atomos.bridge.messaging.SharedMediaScreen
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.math.roundToInt
@@ -87,7 +89,7 @@ private fun AtomosApp(store: SecureStore, activityScope: CoroutineScope) {
     val context = LocalContext.current
     // Activity-owned work survives temporary Compose screen removal during system pickers and dialogs.
     val monitor = remember { NetworkMonitor(context) }
-    var page by remember { mutableStateOf("Files") }
+    var page by remember { mutableStateOf("Chats") }
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("Ready") }
     var network by remember { mutableStateOf(NetworkSnapshot(false, "Offline", false, 0, 0, "")) }
@@ -184,8 +186,13 @@ private fun AtomosApp(store: SecureStore, activityScope: CoroutineScope) {
             },
             bottomBar = {
                 if (page != "Files") NavigationBar(containerColor = SurfaceDark) {
-                    listOf("Home", "Network", "Files", "Storage", "Installer", "Settings").forEach { item ->
-                        NavigationBarItem(selected = page == item, onClick = { page = item }, icon = { Text(when(item) { "Home" -> "⌂"; "Network" -> "⌁"; "Files" -> "▤"; "Storage" -> "◫"; "Installer" -> "⬇"; else -> "⚙" }) }, label = { Text(item) })
+                    listOf("Chats", "People", "Media", "Tools", "Files", "Profile").forEach { item ->
+                        NavigationBarItem(
+                            selected = page == item,
+                            onClick = { page = item },
+                            icon = { Text(when(item) { "Chats" -> "✉"; "People" -> "◎"; "Media" -> "▧"; "Tools" -> "⌘"; "Files" -> "▤"; else -> "⚙" }) },
+                            label = { Text(item) }
+                        )
                     }
                 }
             }
@@ -212,6 +219,10 @@ private fun AtomosApp(store: SecureStore, activityScope: CoroutineScope) {
                 when (page) {
                     "Home" -> HomePage(network, status, onNetwork = { page = "Network" }, onFiles = { page = "Files" }, onInstaller = { page = "Installer" }, onSpeed = { page = "Network" }, onStorage = { page = "Storage" }, onChats = { page = "Chats" })
                     "Chats" -> MessagingInboxScreen(Modifier.weight(1f))
+                    "People" -> PeopleDiscoveryScreen()
+                    "Media" -> SharedMediaScreen(onBrowseLocalFiles = { page = "Files" })
+                    "Profile" -> SettingsPage(status, network.ipAddress)
+                    "Tools" -> HomePage(network, status, onNetwork = { page = "Network" }, onFiles = { page = "Files" }, onInstaller = { page = "Installer" }, onSpeed = { page = "Network" }, onStorage = { page = "Storage" }, onChats = { page = "Chats" })
                     "Network" -> NetworkPage(network, speedResult, speedBusy, speedProgress) {
                         if (!speedBusy) activityScope.launch {
                             speedBusy = true; speedProgress = 0f
