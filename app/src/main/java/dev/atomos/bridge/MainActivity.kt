@@ -36,6 +36,7 @@ import dev.atomos.bridge.messaging.PeopleDiscoveryScreen
 import dev.atomos.bridge.messaging.SharedMediaScreen
 import dev.atomos.bridge.messaging.ConversationSetupScreen
 import dev.atomos.bridge.messaging.SupabaseMessengerApi
+import dev.atomos.bridge.messaging.NativeMlsBridge
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.math.roundToInt
@@ -114,7 +115,6 @@ private fun AtomosApp(
     val scope = rememberCoroutineScope()
     val auth = remember { SupabaseAuth() }
     val messengerApi = remember { SupabaseMessengerApi() }
-    val mlsStorageKeyManager = remember { MlsStorageKeyManager(context, store) }
     var mlsStorageStatus by remember { mutableStateOf("Local MLS storage is not initialized.") }
     var activeConversationId by remember { mutableStateOf<String?>(null) }
     var user by remember { mutableStateOf<AuthUser?>(null) }
@@ -184,10 +184,14 @@ private fun AtomosApp(
         }
         authState = "checking"
         try {
-            user = withContext(Dispatchers.IO) { auth.user(token) }
+            val profile = withContext(Dispatchers.IO) { auth.user(token) }
+            user = profile
             withContext(Dispatchers.IO) { messengerApi.importSession(token, store.get("refresh").orEmpty()) }
-            val keyReady = withContext(Dispatchers.IO) { mlsStorageKeyManager.initializeNative() }
-            mlsStorageStatus = if (keyReady) "Android Keystore key loaded into native storage codec; database provider is next." else "Native storage bridge is unavailable in this build."
+            val keyReady = withContext(Dispatchers.IO) {
+                val database = File(context.filesDir, "atomos_mls_${profile.id.replace("-", "")}.db")
+                MlsStorageKeyManager(context, store, profile.id).initializeNative(database)
+            }
+            mlsStorageStatus = if (keyReady) "Encrypted OpenMLS database opened; protocol operations are being integrated." else "Native encrypted storage could not be opened in this build."
             authState = "authenticated"
             authError = null
         } catch (_: Exception) {
@@ -199,8 +203,11 @@ private fun AtomosApp(
                     store.put("access", tokens.access)
                     store.put("refresh", tokens.refresh)
                     withContext(Dispatchers.IO) { messengerApi.importSession(tokens.access, tokens.refresh) }
-                    val keyReady = withContext(Dispatchers.IO) { mlsStorageKeyManager.initializeNative() }
-                    mlsStorageStatus = if (keyReady) "Android Keystore key loaded into native storage codec; database provider is next." else "Native storage bridge is unavailable in this build."
+                    val keyReady = withContext(Dispatchers.IO) {
+                        val database = File(context.filesDir, "atomos_mls_${profile.id.replace("-", "")}.db")
+                        MlsStorageKeyManager(context, store, profile.id).initializeNative(database)
+                    }
+                    mlsStorageStatus = if (keyReady) "Encrypted OpenMLS database opened; protocol operations are being integrated." else "Native encrypted storage could not be opened in this build."
                     access = tokens.access
                     user = profile
                     authState = "authenticated"
@@ -237,6 +244,8 @@ private fun AtomosApp(
     }
     val signOut: () -> Unit = {
         scope.launch { messengerApi.signOut() }
+        NativeMlsBridge.closeDatabase()
+        NativeMlsBridge.clearStorageKey()
         store.remove("access", "refresh", "oauth_verifier")
         access = null
         user = null
