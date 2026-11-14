@@ -324,7 +324,10 @@ impl AtomosMlsEngine {
 
         match message_in.extract() {
             MlsMessageBodyIn::Welcome(welcome) => {
-                if self.metadata_get::<Vec<u8>>(&group_key)?.is_some() {
+                let published_key = format!("conversation-welcome-published:{conversation_id}");
+                if self.metadata_get::<Vec<u8>>(&group_key)?.is_some()
+                    && self.metadata_get::<bool>(&published_key)?.unwrap_or(false)
+                {
                     return Ok(serde_json::json!({ "kind": "duplicate_welcome" }));
                 }
                 let provider = AtomosProvider::new(&self.crypto, &mut self.connection);
@@ -338,11 +341,16 @@ impl AtomosMlsEngine {
                     Err(WelcomeError::NoMatchingKeyPackage | WelcomeError::JoinerSecretNotFound) => {
                         return Ok(serde_json::json!({ "kind": "not_for_device" }));
                     }
+                    Err(WelcomeError::GroupAlreadyExists) => {
+                        return Ok(serde_json::json!({ "kind": "duplicate_welcome" }));
+                    }
                     Err(error) => return Err(Box::new(error)),
                 };
                 let group = staged.into_group(&provider)?;
                 let group_id = group.group_id().tls_serialize_detached()?;
                 self.metadata_put(&group_key, &group_id)?;
+                self.metadata_put(&published_key, &true)?;
+                self.metadata_delete(&format!("conversation-welcome:{conversation_id}"))?;
                 Ok(serde_json::json!({ "kind": "welcome" }))
             }
             _ => {
