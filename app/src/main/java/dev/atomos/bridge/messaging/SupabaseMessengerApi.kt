@@ -109,6 +109,35 @@ class SupabaseMessengerApi {
             .firstOrNull()
     }
 
+    suspend fun profileById(userId: String): MessengerProfile? {
+        return client.from("profiles")
+            .select {
+                filter { eq("user_id", userId) }
+            }
+            .decodeList<MessengerProfile>()
+            .firstOrNull()
+    }
+
+    suspend fun acceptedContactRequests(userId: String): List<MessengerContactRequest> {
+        val sent = client.from("contact_requests")
+            .select {
+                filter {
+                    eq("requester_id", userId)
+                    eq("status", "accepted")
+                }
+            }
+            .decodeList<MessengerContactRequest>()
+        val received = client.from("contact_requests")
+            .select {
+                filter {
+                    eq("target_id", userId)
+                    eq("status", "accepted")
+                }
+            }
+            .decodeList<MessengerContactRequest>()
+        return (sent + received).distinctBy { it.id }
+    }
+
     suspend fun sendContactRequest(requesterId: String, targetId: String) {
         require(requesterId.isNotBlank() && targetId.isNotBlank() && requesterId != targetId)
         client.from("contact_requests").insert(
