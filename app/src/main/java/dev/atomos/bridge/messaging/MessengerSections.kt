@@ -274,7 +274,7 @@ fun SharedMediaScreen(onBrowseLocalFiles: () -> Unit) {
                 modifier = Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Box(Modifier.size(66.dp).background(Color(0xFF25213F, ), CircleShape), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(66.dp).background(Color(0xFF25213F), CircleShape), contentAlignment = Alignment.Center) {
                     Text("▧", color = MessengerPageAccent, fontSize = 30.sp)
                 }
                 Text("No shared media yet", color = Color.White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
