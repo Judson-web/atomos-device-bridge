@@ -374,8 +374,8 @@ class SupabaseMessengerApi {
         conversationId: String,
         senderUserId: String,
         senderDeviceId: String,
-        messageId: String,
-        messageHex: String
+        messageHex: String,
+        messageId: String = java.util.UUID.randomUUID().toString()
     ): String {
         client.from("messages").insert(
             MessengerMessageInsert(
