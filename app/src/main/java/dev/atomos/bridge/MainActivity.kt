@@ -180,13 +180,17 @@ private fun AtomosApp(
         activeDeviceId = null
         val manager = MlsStorageKeyManager(store, profile.id)
         val database = File(context.filesDir, "atomos_mls_${profile.id.replace("-", "")}.db")
-        if (!withContext(Dispatchers.IO) { manager.initializeNative(database) }) {
-            return "Encrypted native MLS storage is unavailable in this build."
+        val deviceId = manager.deviceIdOrCreate()
+
+        // A revoked device's local MLS groups still contain its old signing identity.
+        // Rotating only the server device ID would mislabel messages signed by that
+        // revoked identity. Fail closed until the group-rekey/recovery flow exists.
+        if (messengerApi.deviceIsRevoked(deviceId)) {
+            return "This device was revoked. Messaging is locked until its conversations are re-keyed and a new device enrollment is completed."
         }
 
-        var deviceId = manager.deviceIdOrCreate()
-        if (messengerApi.deviceIsRevoked(deviceId)) {
-            deviceId = manager.rotateDeviceId()
+        if (!withContext(Dispatchers.IO) { manager.initializeNative(database) }) {
+            return "Encrypted native MLS storage is unavailable in this build."
         }
         if (!messengerApi.deviceExists(deviceId)) {
             val bundles = withContext(Dispatchers.IO) {
