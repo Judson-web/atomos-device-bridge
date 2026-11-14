@@ -653,8 +653,7 @@ set public = false, file_size_limit = excluded.file_size_limit;
 create policy messenger_attachment_objects_read on storage.objects
   for select to authenticated using (
     bucket_id = 'messenger-attachments'
-    and coalesce((storage.foldername(name))[1], '') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
-  'Atomos Messenger. Payloads and attachment bytes are ciphertext only; protocol and key lifecycle are client-owned.';
+    and coalesce((storage.foldername(name))[1], '') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 
     and messenger.is_member(((storage.foldername(name))[1])::uuid)
   );
@@ -662,8 +661,7 @@ create policy messenger_attachment_objects_read on storage.objects
 create policy messenger_attachment_objects_insert on storage.objects
   for insert to authenticated with check (
     bucket_id = 'messenger-attachments'
-    and coalesce((storage.foldername(name))[1], '') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
-  'Atomos Messenger. Payloads and attachment bytes are ciphertext only; protocol and key lifecycle are client-owned.';
+    and coalesce((storage.foldername(name))[1], '') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 
     and messenger.is_member(((storage.foldername(name))[1])::uuid)
   );
