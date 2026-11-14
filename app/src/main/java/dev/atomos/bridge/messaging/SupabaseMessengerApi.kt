@@ -2,12 +2,16 @@ package dev.atomos.bridge.messaging
 
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.Auth
+import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.query.Order
-import io.github.jan.supabase.postgrest.query.filter.eq
+import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.query.filter.FilterOperation
+import io.github.jan.supabase.postgrest.query.filter.FilterOperator
 import io.github.jan.supabase.realtime.Realtime
+import io.github.jan.supabase.realtime.realtime
 import io.github.jan.supabase.realtime.selectAsFlow
 import kotlinx.coroutines.flow.Flow
 import io.github.jan.supabase.storage.Storage
@@ -251,8 +255,8 @@ class SupabaseMessengerApi {
             .select {
                 filter {
                     eq("device_id", deviceId)
-                    io.github.jan.supabase.postgrest.query.filter.isNull("consumed_at")
-                    io.github.jan.supabase.postgrest.query.filter.gt("expires_at", now)
+                    exact("consumed_at", null)
+                    gt("expires_at", now)
                 }
             }
             .decodeList<KeyPackageIdRow>()
@@ -275,9 +279,10 @@ class SupabaseMessengerApi {
                 credential = bytea(identityBundle.credentialHex),
                 signaturePublicKey = bytea(identityBundle.signaturePublicKeyHex),
                 lastSeenAt = java.time.Instant.now().toString()
-            ),
+            )
+        ) {
             onConflict = "id"
-        )
+        }
         publishKeyPackages(deviceId, bundles)
     }
 
@@ -365,9 +370,10 @@ class SupabaseMessengerApi {
     }
 
     fun observeMessages(conversationId: String): Flow<List<MessengerCiphertextRow>> {
-        return client.from("messages").selectAsFlow(MessengerCiphertextRow::id) {
-            filter { eq("conversation_id", conversationId) }
-        }
+        return client.from("messages").selectAsFlow(
+            MessengerCiphertextRow::id,
+            filter = FilterOperation("conversation_id", FilterOperator.EQ, conversationId)
+        )
     }
 
     suspend fun sendMlsMessage(
@@ -432,9 +438,10 @@ class SupabaseMessengerApi {
                 messageId = messageId,
                 userId = userId,
                 readAt = java.time.Instant.now().toString()
-            ),
+            )
+        ) {
             onConflict = "message_id,user_id"
-        )
+        }
     }
 
     suspend fun encryptedMessages(conversationId: String, limit: Int = 100): List<MessengerCiphertextRow> {
