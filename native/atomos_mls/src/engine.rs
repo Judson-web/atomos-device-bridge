@@ -4,11 +4,11 @@
 //! are serialized by OpenMLS SQLite storage and encrypted by EncryptedCodec before
 //! they are written to SQLite. This module does not implement MLS protocol logic.
 
-use crate::storage::{EncryptedCodec, set_storage_key};
+use crate::storage::EncryptedCodec;
 use openmls::prelude::{Ciphersuite, CredentialWithKey, KeyPackage};
 use openmls_basic_credential::{BasicCredential, SignatureKeyPair};
 use openmls_rust_crypto::RustCrypto;
-use openmls_sqlite_storage::SqliteStorageProvider;
+use openmls_sqlite_storage::{Codec, SqliteStorageProvider};
 use openmls_traits::OpenMlsProvider;
 use rusqlite::{Connection, OptionalExtension};
 use std::error::Error;
