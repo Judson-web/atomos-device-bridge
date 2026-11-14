@@ -85,3 +85,36 @@ impl AtomosMlsEngine {
         operation(&provider)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage::{clear_storage_key, set_storage_key};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn encrypted_sqlite_provider_opens_and_runs_migrations() {
+        set_storage_key(&[0x29; 32]).expect("set test storage key");
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "atomos-mls-storage-{}-{unique}.db",
+            std::process::id()
+        ));
+        let path_string = path.to_string_lossy().into_owned();
+
+        let mut engine = AtomosMlsEngine::open(&path_string)
+            .expect("encrypted SQLite storage migrations should succeed");
+        engine
+            .with_provider(|_| Ok::<(), Box<dyn Error + Send + Sync>>(()))
+            .expect("provider should be available");
+
+        drop(engine);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(format!("{path_string}-wal"));
+        let _ = std::fs::remove_file(format!("{path_string}-shm"));
+        clear_storage_key();
+    }
+}
