@@ -63,8 +63,8 @@ class MlsStorageKeyManager(
         return created
     }
 
-    fun createDeviceKeyPackage(userId: String, deviceId: String) =
-        NativeMlsBridge.createKeyPackage(userId, deviceId)
+    fun createDeviceKeyPackages(userId: String, deviceId: String, count: Int = 10) =
+        NativeMlsBridge.createKeyPackages(userId, deviceId, count)
 
     private fun loadOrCreateStorageKey(databaseFile: File): ByteArray {
         val wrapped = secureStore.getStrict(secureStoreName)
