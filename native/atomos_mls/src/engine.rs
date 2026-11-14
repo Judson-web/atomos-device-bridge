@@ -344,6 +344,41 @@ impl AtomosMlsEngine {
         self.metadata_delete(&format!("pending-outgoing:{conversation_id}:{message_id}"))
     }
 
+    /// Returns locally persisted, not-yet-acknowledged ciphertext messages for retry.
+    /// Message bodies are never decrypted or returned by this recovery path.
+    pub fn pending_outgoing(&self, conversation_id: &str) -> EngineResult<serde_json::Value> {
+        if conversation_id.is_empty() || conversation_id.len() > 128 {
+            return Err("invalid conversation identifier".into());
+        }
+
+        let prefix = format!("pending-outgoing:{conversation_id}:");
+        let keys: Vec<String> = {
+            let mut statement = self.connection.prepare(
+                "SELECT key FROM atomos_mls_metadata
+                 WHERE substr(key, 1, length(?1)) = ?1
+                 ORDER BY key"
+            )?;
+            let rows = statement.query_map([&prefix], |row| row.get::<_, String>(0))?;
+            rows.collect::<Result<Vec<_>, _>>()?
+        };
+
+        let mut pending = Vec::with_capacity(keys.len());
+        for key in keys {
+            let Some(message_id) = key.strip_prefix(&prefix) else { continue };
+            if message_id.is_empty() || message_id.len() > 128 {
+                continue;
+            }
+            let ciphertext = self.metadata_get::<Vec<u8>>(&key)?
+                .ok_or("pending MLS ciphertext disappeared from local storage")?;
+            pending.push(serde_json::json!({
+                "message_id": message_id,
+                "ciphertext_hex": hex::encode(ciphertext)
+            }));
+        }
+
+        Ok(serde_json::Value::Array(pending))
+    }
+
     /// Processes an MLS Welcome, Commit, Proposal or Application message. Plaintext
     /// is cached in the encrypted local metadata store so history can be rendered
     /// again after restart without replaying an already-consumed MLS message.
