@@ -331,7 +331,7 @@ returns void
 language plpgsql
 security definer
 set search_path = pg_catalog, messenger
-as $
+as $$
 begin
   if auth.uid() is null then
     raise exception 'authentication_required' using errcode = '28000';
@@ -355,7 +355,7 @@ returns void
 language plpgsql
 security definer
 set search_path = pg_catalog, messenger
-as $
+as $$
 declare
   v_user_id uuid := auth.uid();
   v_role text;
@@ -393,7 +393,7 @@ returns void
 language plpgsql
 security definer
 set search_path = pg_catalog, messenger
-as $
+as $$
 begin
   if auth.uid() is null then
     raise exception 'authentication_required' using errcode = '28000';
