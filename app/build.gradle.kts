@@ -7,8 +7,8 @@ android {
   applicationId = "dev.atomos.bridge"
   minSdk = 29
   targetSdk = 37
-  buildConfigField("String", "SUPABASE_URL", "\\"https://swvlujplpqfppnhdhxyf.supabase.co\\"")
-  buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\\"sb_publishable_mNuobCwjLhFaqdQ03faipw_WYmrt0Ni\\"")
+  buildConfigField("String", "SUPABASE_URL", "\"https://swvlujplpqfppnhdhxyf.supabase.co\"")
+  buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"sb_publishable_mNuobCwjLhFaqdQ03faipw_WYmrt0Ni\"")
   versionCode = 23
   versionName = "1.1.0"
  }
