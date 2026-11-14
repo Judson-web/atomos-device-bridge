@@ -93,7 +93,7 @@ impl Codec for EncryptedCodec {
             serde_json::to_vec(value).map_err(EncryptedCodecError::Serialization)?
         );
         let key = copy_storage_key()?;
-        let cipher = XChaCha20Poly1305::new_from_slice(key.as_ref())
+        let cipher = XChaCha20Poly1305::new_from_slice(&key[..])
             .map_err(|_| EncryptedCodecError::InvalidEnvelope)?;
 
         let mut nonce = [0u8; NONCE_BYTES];
@@ -102,7 +102,7 @@ impl Codec for EncryptedCodec {
             .encrypt(
                 XNonce::from_slice(&nonce),
                 Payload {
-                    msg: &plaintext,
+                    msg: &plaintext[..],
                     aad: STORAGE_AAD,
                 },
             )
@@ -138,7 +138,7 @@ impl Codec for EncryptedCodec {
             )
             .map_err(|_| EncryptedCodecError::AuthenticationFailed)?);
 
-        serde_json::from_slice(&plaintext).map_err(EncryptedCodecError::Serialization)
+        serde_json::from_slice(&plaintext[..]).map_err(EncryptedCodecError::Serialization)
     }
 }
 
@@ -146,6 +146,9 @@ impl Codec for EncryptedCodec {
 mod tests {
     use super::*;
     use serde::{Deserialize, Serialize};
+    use std::sync::Mutex;
+
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
 
     #[derive(Debug, PartialEq, Serialize, Deserialize)]
     struct StoredState {
@@ -156,6 +159,7 @@ mod tests {
 
     #[test]
     fn codec_round_trips_and_authenticates_serialized_state() {
+        let _guard = TEST_LOCK.lock().expect("test lock");
         set_storage_key(&[0x42; 32]).expect("valid storage key");
         let state = StoredState {
             group_id: "opaque-group".into(),
@@ -181,6 +185,7 @@ mod tests {
 
     #[test]
     fn codec_fails_closed_without_key() {
+        let _guard = TEST_LOCK.lock().expect("test lock");
         clear_storage_key();
         assert!(matches!(
             EncryptedCodec::to_vec(&"not stored"),
