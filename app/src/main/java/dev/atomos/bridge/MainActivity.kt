@@ -177,6 +177,7 @@ private fun AtomosApp(
         clearCallback()
     }
     suspend fun initializeMessagingDevice(profile: AuthUser): String {
+        activeDeviceId = null
         val manager = MlsStorageKeyManager(store, profile.id)
         val database = File(context.filesDir, "atomos_mls_${profile.id.replace("-", "")}.db")
         if (!withContext(Dispatchers.IO) { manager.initializeNative(database) }) {
@@ -187,8 +188,6 @@ private fun AtomosApp(
         if (messengerApi.deviceIsRevoked(deviceId)) {
             deviceId = manager.rotateDeviceId()
         }
-        activeDeviceId = deviceId
-
         if (!messengerApi.deviceExists(deviceId)) {
             val bundles = withContext(Dispatchers.IO) {
                 manager.createDeviceKeyPackages(profile.id, deviceId, 10)
@@ -205,7 +204,8 @@ private fun AtomosApp(
             } ?: error("Unable to renew device MLS KeyPackages.")
             messengerApi.publishKeyPackages(deviceId, bundles)
         }
-        return "Device enrolled; encrypted MLS storage and a one-time key package are ready."
+        activeDeviceId = deviceId
+        return "Device enrolled; encrypted MLS storage and a pool of one-time KeyPackages are ready."
     }
 
     LaunchedEffect(access) {
