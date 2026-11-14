@@ -5,10 +5,10 @@ import org.json.JSONObject
 /**
  * Optional JNI handshake for the pinned OpenMLS native library.
  *
- * This only verifies that the native library is packaged and loadable. It does not
- * initialize an MLS identity, create a group, or encrypt/decrypt application messages.
- * Messaging must remain disabled until those protocol operations and persistence tests
- * are implemented and reviewed.
+ * This bridge opens per-account encrypted OpenMLS SQLite storage and creates
+ * device-bound KeyPackages. It does not yet create MLS groups or encrypt/decrypt
+ * application messages; message composition remains disabled until those operations
+ * and their persistence/interoperability tests are implemented and reviewed.
  */
 data class DeviceEnrollmentBundle(
     val credentialHex: String,
