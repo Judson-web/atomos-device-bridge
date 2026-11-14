@@ -1,6 +1,7 @@
 package dev.atomos.bridge.messaging
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -156,15 +157,11 @@ fun ConversationSetupScreen(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(11.dp)
         ) {
-            Surface(
-                onClick = onBack,
-                modifier = Modifier.size(40.dp),
-                shape = CircleShape,
-                color = Color(0xFF222A3B)
+            Box(
+                modifier = Modifier.size(40.dp).background(Color(0xFF222A3B), CircleShape).clickable(onClick = onBack),
+                contentAlignment = Alignment.Center
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text("‹", color = Color.White, fontSize = 31.sp, textAlign = TextAlign.Center)
-                }
+                Text("‹", color = Color.White, fontSize = 31.sp, textAlign = TextAlign.Center)
             }
             Box(
                 Modifier.size(43.dp).background(Color(0xFF292442), CircleShape),
@@ -179,7 +176,6 @@ fun ConversationSetupScreen(
                     Text(status, color = ChatMuted, fontSize = 10.sp, maxLines = 1)
                 }
             }
-            Text("⋮", color = ChatMuted, fontSize = 23.sp, modifier = Modifier.padding(horizontal = 5.dp))
         }
 
         Box(
