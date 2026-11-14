@@ -50,6 +50,46 @@ jobs:
             echo "Android SDK 37.0 and Build Tools 37.0.0 already installed; skipping download."
           fi
 
+      - name: Install Android NDK for OpenMLS
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          "$SDKMANAGER" "ndk;27.2.12479018"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+
+      - name: Install Rust 1.91 and Android targets
+        uses: dtolnay/rust-toolchain@1.91.0
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+
+      - name: Resolve and test OpenMLS native bridge
+        working-directory: native/atomos_mls
+        run: |
+          cargo generate-lockfile
+          cargo test --locked
+
+      - name: Build OpenMLS native libraries for Android
+        working-directory: native/atomos_mls
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$TOOLCHAIN/aarch64-linux-android24-clang"
+          export CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER="$TOOLCHAIN/armv7a-linux-androideabi24-clang"
+          export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$TOOLCHAIN/x86_64-linux-android24-clang"
+
+          cargo build --locked --release --target aarch64-linux-android
+          cargo build --locked --release --target armv7-linux-androideabi
+          cargo build --locked --release --target x86_64-linux-android
+
+          mkdir -p ../../app/src/main/jniLibs/arm64-v8a
+          mkdir -p ../../app/src/main/jniLibs/armeabi-v7a
+          mkdir -p ../../app/src/main/jniLibs/x86_64
+          cp target/aarch64-linux-android/release/libatomos_mls_bridge.so ../../app/src/main/jniLibs/arm64-v8a/
+          cp target/armv7-linux-androideabi/release/libatomos_mls_bridge.so ../../app/src/main/jniLibs/armeabi-v7a/
+          cp target/x86_64-linux-android/release/libatomos_mls_bridge.so ../../app/src/main/jniLibs/x86_64/
+
       - name: Set up Gradle 9.3.1 with dependency cache
         uses: gradle/actions/setup-gradle@v6
         with:
