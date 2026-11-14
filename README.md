@@ -21,7 +21,7 @@ These capabilities will be integrated through narrow attachment and preview inte
 
 ## Security direction
 
-- Select and integrate a maintained, established end-to-end encryption protocol implementation. Do not write custom cryptography.
+- Use MLS (RFC 9420) through the pinned OpenMLS Rust implementation. Do not write custom cryptographic primitives or protocol logic. Kotlin and Rust glue is application integration, not a replacement cipher or ratchet.
 - Generate and protect private keys on device; encrypt message bodies and attachment contents before upload.
 - Store ciphertext, not plaintext conversations or media, on messaging infrastructure.
 - Keep push notifications free of message content.
@@ -29,16 +29,16 @@ These capabilities will be integrated through narrow attachment and preview inte
 - Make device enrollment, key changes, backup and recovery explicit and visible.
 - Do not claim E2EE until the documented security release gate has passed.
 
-See docs/MESSENGER_ARCHITECTURE.md for the architecture and docs/CRYPTO_PROTOCOL_DECISION.md for the MLS/OpenMLS decision, Android native integration requirements and security gates.
+See docs/MESSENGER_ARCHITECTURE.md for the architecture and docs/CRYPTO_PROTOCOL_DECISION.md for the MLS/OpenMLS decision, Android native integration requirements and security gates. The native crate currently provides a runtime handshake and an OpenMLS two-client round-trip test; production key lifecycle, group persistence and message transport are still under implementation.
 
 ## Platform and build
 
 - Android 10 (API 29) and newer.
 - Kotlin, Jetpack Compose and AndroidX Media3.
-- JDK 17, Android SDK 35+ and Gradle wrapper.
+- JDK 17 for Android/Gradle, Android SDK 37 and NDK 27.2.12479018 for the native bridge, and Rust 1.91+ for OpenMLS 0.9.2.
 - Existing application ID: dev.atomos.bridge.
 - Preserve the established Atomos release signing identity. Do not generate a replacement keystore for routine releases.
 
 ## Legacy backend files
 
-The existing Supabase migrations and retired Edge Function are historical artifacts from an earlier device-bridge prototype. They are not a production messaging backend and must not be applied or revived blindly. Messaging requires a separately reviewed schema, authorization model and deployment plan.
+The old device-bridge migrations and retired Edge Function remain historical and must not be revived. The new isolated `messenger` schema migration is a draft for a separately approved Supabase project. It has not been deployed. Before applying it, review the target project's auth provider, add `messenger` to the PostgREST exposed schemas, verify storage and Realtime settings, run RLS tests, and confirm the project contains no unrelated production data that could be affected.
