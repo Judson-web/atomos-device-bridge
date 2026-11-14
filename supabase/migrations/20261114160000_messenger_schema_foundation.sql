@@ -90,7 +90,7 @@ as $$
       and cm.user_id = auth.uid()
       and cm.removed_at is null
   );
-$$$;
+$$;
 
 create or replace function messenger.is_admin(p_conversation_id uuid)
 returns boolean
@@ -107,7 +107,7 @@ as $$
       and cm.removed_at is null
       and cm.role in ('owner', 'admin')
   );
-$$$;
+$$;
 
 revoke all on function messenger.is_member(uuid) from public;
 revoke all on function messenger.is_admin(uuid) from public;
@@ -267,7 +267,7 @@ begin
 
   return v_conversation_id;
 end;
-$$$;
+$$;
 
 create or replace function messenger.add_conversation_member(
   p_conversation_id uuid,
@@ -321,7 +321,7 @@ begin
                 joined_at = now(), removed_at = null
   where messenger.conversation_members.removed_at is not null;
 end;
-$$$;
+$$;
 
 create or replace function messenger.respond_contact_request(
   p_request_id uuid,
@@ -466,7 +466,7 @@ begin
   )
   select c.id, c.device_id, c.package, c.cipher_suite from consumed c;
 end;
-$$$;
+$$;
 
 -- RLS helpers are SECURITY DEFINER and use a fixed search_path. All exposed tables
 -- still enforce membership or owner checks at the row level.
