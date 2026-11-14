@@ -245,7 +245,7 @@ jobs:
             # Verify the APK signature, alignment and actual manifest identity
             # before allowing it to be attached to a GitHub Release.
             signature_report="$("$APKSIGNER" verify --verbose --print-certs "$release_apk" 2>&1)"
-            printf '%s\\n' "$signature_report"
+            printf '%s\n' "$signature_report"
             "$ZIPALIGN" -c -v 4 "$release_apk"
             badging="$("$AAPT" dump badging "$release_apk")"
             grep -F "package: name='dev.atomos.bridge'" <<<"$badging"
@@ -255,7 +255,7 @@ jobs:
             {
               echo "### Release APK verification"
               echo 'Signature verification: passed'
-              printf '%s\\n' "$signature_report"
+              printf '%s\n' "$signature_report"
               echo 'Package: dev.atomos.bridge'
               echo 'Minimum SDK: 29'
               echo 'Alignment: verified (4-byte)'
