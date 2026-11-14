@@ -74,19 +74,48 @@ private fun copyUriToCache(context: android.content.Context, uri: Uri, displayNa
 }
 
 class MainActivity : ComponentActivity() {
+    private var authCallback by mutableStateOf<Uri?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
+        authCallback = intent?.data
         val store = SecureStore(this)
-        store.remove("access", "refresh", "oauth_verifier")
-        setContent { AtomosApp(store, lifecycleScope) }
+        setContent {
+            AtomosApp(
+                store = store,
+                activityScope = lifecycleScope,
+                callback = authCallback,
+                clearCallback = { authCallback = null },
+                openBrowser = { url -> startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+            )
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        authCallback = intent.data
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AtomosApp(store: SecureStore, activityScope: CoroutineScope) {
+private fun AtomosApp(
+    store: SecureStore,
+    activityScope: CoroutineScope,
+    callback: Uri?,
+    clearCallback: () -> Unit,
+    openBrowser: (String) -> Unit
+) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val auth = remember { SupabaseAuth() }
+    var user by remember { mutableStateOf<AuthUser?>(null) }
+    var access by remember { mutableStateOf(store.get("access")) }
+    var authState by remember { mutableStateOf(if (access.isNullOrBlank()) "signed_out" else "checking") }
+    var authError by remember { mutableStateOf<String?>(null) }
+    var authLaunching by remember { mutableStateOf(false) }
     // Activity-owned work survives temporary Compose screen removal during system pickers and dialogs.
     val monitor = remember { NetworkMonitor(context) }
     var page by remember { mutableStateOf("Chats") }
@@ -107,6 +136,102 @@ private fun AtomosApp(store: SecureStore, activityScope: CoroutineScope) {
     fun refreshFiles(dir: DocumentFile?) {
         entries = dir?.listFiles()?.sortedWith(compareByDescending<DocumentFile> { it.isDirectory }.thenBy { it.name?.lowercase() })?.toList().orEmpty()
     }
+    LaunchedEffect(callback) {
+        val uri = callback ?: return@LaunchedEffect
+        clearCallback()
+        authState = "checking"
+        authLaunching = false
+        val code = uri.getQueryParameter("code")
+        val oauthError = uri.getQueryParameter("error_description") ?: uri.getQueryParameter("error")
+        val verifier = store.get("oauth_verifier")
+        try {
+            if (!oauthError.isNullOrBlank()) error(oauthError)
+            require(!code.isNullOrBlank() && !verifier.isNullOrBlank()) {
+                "Discord sign-in could not be completed."
+            }
+            val tokens = withContext(Dispatchers.IO) { auth.exchange(code, verifier) }
+            val profile = withContext(Dispatchers.IO) { auth.user(tokens.access) }
+            store.put("access", tokens.access)
+            store.put("refresh", tokens.refresh)
+            store.remove("oauth_verifier")
+            access = tokens.access
+            user = profile
+            authState = "authenticated"
+            authError = null
+            status = "Signed in with Discord."
+        } catch (e: Exception) {
+            store.remove("access", "refresh", "oauth_verifier")
+            access = null
+            user = null
+            authState = "signed_out"
+            authError = e.message ?: "Please try again."
+            status = "Authentication failed."
+        }
+    }
+    LaunchedEffect(access) {
+        if (callback != null) return@LaunchedEffect
+        val token = access
+        if (token.isNullOrBlank()) {
+            user = null
+            authState = "signed_out"
+            return@LaunchedEffect
+        }
+        authState = "checking"
+        try {
+            user = withContext(Dispatchers.IO) { auth.user(token) }
+            authState = "authenticated"
+            authError = null
+        } catch (_: Exception) {
+            val refreshToken = store.get("refresh")
+            if (refreshToken != null) {
+                try {
+                    val tokens = withContext(Dispatchers.IO) { auth.refresh(refreshToken) }
+                    val profile = withContext(Dispatchers.IO) { auth.user(tokens.access) }
+                    store.put("access", tokens.access)
+                    store.put("refresh", tokens.refresh)
+                    access = tokens.access
+                    user = profile
+                    authState = "authenticated"
+                    authError = null
+                } catch (e: Exception) {
+                    store.remove("access", "refresh")
+                    access = null
+                    user = null
+                    authState = "signed_out"
+                    authError = e.message ?: "Your session expired. Sign in again."
+                }
+            } else {
+                store.remove("access")
+                access = null
+                user = null
+                authState = "signed_out"
+            }
+        }
+    }
+    val beginSignIn: () -> Unit = {
+        scope.launch {
+            authError = null
+            authLaunching = true
+            try {
+                val verifier = auth.verifier()
+                store.put("oauth_verifier", verifier)
+                openBrowser(auth.discordUrl(verifier))
+                authLaunching = false
+            } catch (e: Exception) {
+                authLaunching = false
+                authError = e.message ?: "Unable to start Discord sign-in."
+            }
+        }
+    }
+    val signOut: () -> Unit = {
+        store.remove("access", "refresh", "oauth_verifier")
+        access = null
+        user = null
+        authState = "signed_out"
+        authError = null
+        status = "Signed out."
+    }
+
     val treePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
             runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION) }
@@ -172,7 +297,11 @@ private fun AtomosApp(store: SecureStore, activityScope: CoroutineScope) {
     }
     LaunchedEffect(folderUri) { currentDirectory = folderUri?.let { DocumentFile.fromTreeUri(context, it) }; refreshFiles(currentDirectory) }
     MaterialTheme(colorScheme = darkColorScheme(primary = Violet, background = Background, surface = SurfaceDark)) {
-        Scaffold(
+        if (authState == "checking") {
+            AuthLoadingScreen()
+        } else if (authState != "authenticated" || user == null) {
+            AuthGateScreen(error = authError, launching = authLaunching, onSignIn = beginSignIn)
+        } else Scaffold(
             containerColor = Background,
             topBar = {
                 if (page != "Files") CenterAlignedTopAppBar(
@@ -221,7 +350,7 @@ private fun AtomosApp(store: SecureStore, activityScope: CoroutineScope) {
                     "Chats" -> MessagingInboxScreen(Modifier.weight(1f))
                     "People" -> PeopleDiscoveryScreen()
                     "Media" -> SharedMediaScreen(onBrowseLocalFiles = { page = "Files" })
-                    "Profile" -> SettingsPage(status, network.ipAddress)
+                    "Profile" -> ProfileScreen(user!!, network.ipAddress, status, signOut)
                     "Tools" -> HomePage(network, status, onNetwork = { page = "Network" }, onFiles = { page = "Files" }, onInstaller = { page = "Installer" }, onSpeed = { page = "Network" }, onStorage = { page = "Storage" }, onChats = { page = "Chats" })
                     "Network" -> NetworkPage(network, speedResult, speedBusy, speedProgress) {
                         if (!speedBusy) activityScope.launch {
