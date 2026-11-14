@@ -8,6 +8,8 @@ import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.query.Order
 import io.github.jan.supabase.postgrest.query.filter.eq
 import io.github.jan.supabase.realtime.Realtime
+import io.github.jan.supabase.realtime.selectAsFlow
+import kotlinx.coroutines.flow.Flow
 import io.github.jan.supabase.storage.Storage
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -29,6 +31,14 @@ data class MessengerContactRequest(
     @SerialName("target_id") val targetId: String,
     val status: String,
     @SerialName("created_at") val createdAt: String
+)
+
+@Serializable
+data class MessengerConversationRow(
+    val id: String,
+    val kind: String,
+    @SerialName("created_at") val createdAt: String,
+    @SerialName("updated_at") val updatedAt: String
 )
 
 @Serializable
@@ -175,6 +185,14 @@ class SupabaseMessengerApi {
             }
         )
         return response.decodeSingle<String>()
+    }
+
+    fun observeConversationRows(): Flow<List<MessengerConversationRow>> {
+        return client.from("conversations").selectAsFlow(MessengerConversationRow::id)
+    }
+
+    fun observeContactRequests(): Flow<List<MessengerContactRequest>> {
+        return client.from("contact_requests").selectAsFlow(MessengerContactRequest::id)
     }
 
     suspend fun conversationSummaries(): List<MessengerConversationSummary> {
