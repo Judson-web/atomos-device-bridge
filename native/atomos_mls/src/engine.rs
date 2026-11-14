@@ -5,11 +5,14 @@
 //! they are written to SQLite. This module does not implement MLS protocol logic.
 
 use crate::storage::EncryptedCodec;
+use openmls::prelude::{Ciphersuite, CredentialWithKey, KeyPackage};
+use openmls_basic_credential::{BasicCredential, SignatureKeyPair};
 use openmls_rust_crypto::RustCrypto;
 use openmls_sqlite_storage::{Connection, SqliteStorageProvider};
 use openmls_traits::OpenMlsProvider;
 use std::error::Error;
 use std::time::Duration;
+use tls_codec::Serialize;
 
 pub type EngineResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
@@ -72,6 +75,50 @@ impl AtomosMlsEngine {
         Ok(Self {
             connection,
             crypto: RustCrypto::default(),
+        })
+    }
+
+    /// Creates a device-bound MLS KeyPackage and persists its private key material
+    /// through the encrypted OpenMLS storage provider. Only public enrollment data
+    /// and the serialized KeyPackage are returned to Kotlin.
+    pub fn create_key_package(
+        &mut self,
+        user_id: &str,
+        device_id: &str,
+    ) -> EngineResult<serde_json::Value> {
+        if user_id.is_empty() || device_id.is_empty()
+            || user_id.len() > 128 || device_id.len() > 128
+        {
+            return Err("invalid Atomos identity".into());
+        }
+
+        let identity = format!("atomos-v1:{user_id}:{device_id}");
+        self.with_provider(|provider| {
+            let ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
+            let credential = BasicCredential::new(identity.as_bytes().to_vec());
+            let signature_keys = SignatureKeyPair::new(ciphersuite.signature_algorithm())?;
+            signature_keys.store(provider.storage())?;
+
+            let credential_with_key = CredentialWithKey {
+                credential: credential.into(),
+                signature_key: signature_keys.public().into(),
+            };
+
+            let key_package = KeyPackage::builder().build(
+                ciphersuite,
+                provider,
+                &signature_keys,
+                credential_with_key,
+            )?;
+            let serialized_package = key_package.key_package().tls_serialize_detached()?;
+            let public_signature_key = signature_keys.public().to_vec();
+
+            Ok(serde_json::json!({
+                "credential_hex": hex::encode(identity.as_bytes()),
+                "signature_public_key_hex": hex::encode(public_signature_key),
+                "key_package_hex": hex::encode(serialized_package),
+                "cipher_suite": "MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519"
+            }))
         })
     }
 
