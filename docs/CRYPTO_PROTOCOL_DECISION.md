@@ -13,12 +13,12 @@ This is a technical direction, not a claim that Atomos currently provides end-to
 - MLS is standardized in IETF RFC 9420 and designed for secure groups from two participants to many.
 - OpenMLS is maintained by Phoenix R&D and Cryspen, implements RFC 9420, and supports multiple standard ciphersuites.
 - OpenMLS publishes Android target build configurations, including arm64-v8a, armeabi-v7a, x86 and x86_64 Rust targets, but explicitly classifies Android targets as unsupported / built in CI rather than supported / tested. Atomos must independently build and run protocol interoperability tests on each ABI it ships.
-- OpenMLS underwent an independent SRLabs security audit in 2026. The published audit summary reports eight findings, including one high severity; fixes for seven were merged and published, with the remaining low-severity item described as being addressed. The 0.9.0 release notes later list additional security-relevant fixes. This audit is valuable evidence, not a substitute for checking the full report, the exact pinned release, dependency advisories, and Atomos integration.
+- OpenMLS underwent an independent SRLabs security audit in 2026. The published audit summary reports eight findings, including one high severity; seven fixes were merged and published in 0.8.1 and 0.7.3, while the remaining low-severity issue was described as being addressed. OpenMLS 0.9.2 was released on 22 October 2026 and includes later fixes, but we must read the full audit report and map each finding to 0.9.2 before relying on it. The audit is evidence, not a certification of Atomos.
 - Signal libsignal is not selected: upstream explicitly says use outside Signal is unsupported and APIs can change without notice. Its official Android build toolchain uses JDK 21, while Atomos currently uses JDK 17. A direct dependency would create a maintenance and compatibility burden without upstream support.
 
 ## Integration strategy
 
-1. Pin an audited OpenMLS release and its complete Cargo dependency graph. Never use a floating version.
+1. Pin OpenMLS 0.9.2 and its complete Cargo dependency graph. This release requires Rust 1.91; the dependency lockfile must be committed before production builds. Never use a floating version.
 2. Use a small Rust crate as the only owner of MLS state and cryptographic operations. Expose a narrow UniFFI or JNI API to Kotlin. Kotlin must not parse, mutate or serialize private MLS state itself.
 3. Keep group state and private key material in a dedicated encrypted local store. Protect the wrapping key with Android Keystore. Never upload serialized private group state or identity secrets.
 4. Treat the server as an untrusted delivery service. It stores opaque routing identifiers, protocol messages, public key packages and delivery metadata only.
@@ -51,4 +51,4 @@ This is a technical direction, not a claim that Atomos currently provides end-to
 
 - Kotlin ciphertext envelope and repository boundaries exist.
 - A first-run inbox screen exists and explicitly says secure messaging is not yet enabled.
-- No MLS dependency, native bridge, device enrollment, messaging tables, message transport or encrypted attachment pipeline has been enabled.
+- OpenMLS 0.9.2 and its RustCrypto provider are now pinned in a native Rust bridge crate. A JNI runtime-version handshake and Android ABI build workflow have been added. This is dependency/build integration only: no MLS identity, key package, group, message protect/unprotect operation, device enrollment, live backend transport or encrypted attachment pipeline has been enabled.
