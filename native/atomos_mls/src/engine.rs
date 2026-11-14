@@ -259,11 +259,10 @@ impl AtomosMlsEngine {
                 key_packages.push(key_package);
             }
 
-            let commit_bundle = group.add_members(&provider, &signature_keys, &key_packages)?;
-            let (_commit, welcome, _group_info) = commit_bundle.into_messages();
+            let (_commit, welcome, _group_info) =
+                group.add_members(&provider, &signature_keys, &key_packages)?;
             group.merge_pending_commit(&provider)?;
 
-            let welcome = welcome.ok_or("OpenMLS did not produce a Welcome for the direct group")?;
             (
                 group.group_id().tls_serialize_detached()?,
                 welcome.to_bytes()?,
@@ -304,7 +303,7 @@ impl AtomosMlsEngine {
         let signature_keys = self.load_signing_key(device_id)?;
 
         let provider = AtomosProvider::new(&self.crypto, &mut self.connection);
-        let mut group = MlsGroup::load(&provider, &group_id)?
+        let mut group = MlsGroup::load(provider.storage(), &group_id)?
             .ok_or("MLS group state is missing from encrypted local storage")?;
         let message = group.create_message(&provider, &signature_keys, plaintext)?;
         Ok(message.to_bytes()?)
