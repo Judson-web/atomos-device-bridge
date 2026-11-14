@@ -188,20 +188,20 @@ private fun AtomosApp(
         }
 
         if (!messengerApi.deviceExists(deviceId)) {
-            val bundle = withContext(Dispatchers.IO) {
-                manager.createDeviceKeyPackage(profile.id, deviceId)
-            } ?: error("Unable to create the device MLS key package.")
+            val bundles = withContext(Dispatchers.IO) {
+                manager.createDeviceKeyPackages(profile.id, deviceId, 10)
+            } ?: error("Unable to create device MLS KeyPackages.")
             messengerApi.registerDevice(
                 userId = profile.id,
                 deviceId = deviceId,
                 label = Build.MODEL.ifBlank { "Android device" },
-                bundle = bundle
+                bundles = bundles
             )
-        } else if (!messengerApi.hasActiveKeyPackage(deviceId)) {
-            val bundle = withContext(Dispatchers.IO) {
-                manager.createDeviceKeyPackage(profile.id, deviceId)
-            } ?: error("Unable to renew the device MLS key package.")
-            messengerApi.publishKeyPackage(deviceId, bundle)
+        } else if (messengerApi.activeKeyPackageCount(deviceId) < 5) {
+            val bundles = withContext(Dispatchers.IO) {
+                manager.createDeviceKeyPackages(profile.id, deviceId, 10)
+            } ?: error("Unable to renew device MLS KeyPackages.")
+            messengerApi.publishKeyPackages(deviceId, bundles)
         }
         return "Device enrolled; encrypted MLS storage and a one-time key package are ready."
     }
