@@ -3,6 +3,7 @@ package dev.atomos.bridge
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.Build
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -174,6 +175,37 @@ private fun AtomosApp(
         }
         clearCallback()
     }
+    suspend fun initializeMessagingDevice(profile: AuthUser): String {
+        val manager = MlsStorageKeyManager(store, profile.id)
+        val database = File(context.filesDir, "atomos_mls_${profile.id.replace("-", "")}.db")
+        if (!withContext(Dispatchers.IO) { manager.initializeNative(database) }) {
+            return "Encrypted native MLS storage is unavailable in this build."
+        }
+
+        var deviceId = manager.deviceIdOrCreate()
+        if (messengerApi.deviceIsRevoked(deviceId)) {
+            deviceId = manager.rotateDeviceId()
+        }
+
+        if (!messengerApi.deviceExists(deviceId)) {
+            val bundle = withContext(Dispatchers.IO) {
+                manager.createDeviceKeyPackage(profile.id, deviceId)
+            } ?: error("Unable to create the device MLS key package.")
+            messengerApi.registerDevice(
+                userId = profile.id,
+                deviceId = deviceId,
+                label = Build.MODEL.ifBlank { "Android device" },
+                bundle = bundle
+            )
+        } else if (!messengerApi.hasActiveKeyPackage(deviceId)) {
+            val bundle = withContext(Dispatchers.IO) {
+                manager.createDeviceKeyPackage(profile.id, deviceId)
+            } ?: error("Unable to renew the device MLS key package.")
+            messengerApi.publishKeyPackage(deviceId, bundle)
+        }
+        return "Device enrolled; encrypted MLS storage and a one-time key package are ready."
+    }
+
     LaunchedEffect(access) {
         if (callback != null) return@LaunchedEffect
         val token = access
@@ -187,11 +219,11 @@ private fun AtomosApp(
             val profile = withContext(Dispatchers.IO) { auth.user(token) }
             user = profile
             withContext(Dispatchers.IO) { messengerApi.importSession(token, store.get("refresh").orEmpty()) }
-            val keyReady = withContext(Dispatchers.IO) {
-                val database = File(context.filesDir, "atomos_mls_${profile.id.replace("-", "")}.db")
-                MlsStorageKeyManager(context, store, profile.id).initializeNative(database)
+            mlsStorageStatus = try {
+                initializeMessagingDevice(profile)
+            } catch (e: Exception) {
+                "Secure device enrollment failed: ${e.message ?: "unknown error"}"
             }
-            mlsStorageStatus = if (keyReady) "Encrypted OpenMLS database opened; protocol operations are being integrated." else "Native encrypted storage could not be opened in this build."
             authState = "authenticated"
             authError = null
         } catch (_: Exception) {
@@ -203,11 +235,11 @@ private fun AtomosApp(
                     store.put("access", tokens.access)
                     store.put("refresh", tokens.refresh)
                     withContext(Dispatchers.IO) { messengerApi.importSession(tokens.access, tokens.refresh) }
-                    val keyReady = withContext(Dispatchers.IO) {
-                        val database = File(context.filesDir, "atomos_mls_${profile.id.replace("-", "")}.db")
-                        MlsStorageKeyManager(context, store, profile.id).initializeNative(database)
+                    mlsStorageStatus = try {
+                        initializeMessagingDevice(profile)
+                    } catch (enrollmentError: Exception) {
+                        "Secure device enrollment failed: ${enrollmentError.message ?: "unknown error"}"
                     }
-                    mlsStorageStatus = if (keyReady) "Encrypted OpenMLS database opened; protocol operations are being integrated." else "Native encrypted storage could not be opened in this build."
                     access = tokens.access
                     user = profile
                     authState = "authenticated"
