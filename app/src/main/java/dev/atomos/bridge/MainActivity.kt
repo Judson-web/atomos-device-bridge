@@ -114,6 +114,8 @@ private fun AtomosApp(
     val scope = rememberCoroutineScope()
     val auth = remember { SupabaseAuth() }
     val messengerApi = remember { SupabaseMessengerApi() }
+    val mlsStorageKeyManager = remember { MlsStorageKeyManager(context, store) }
+    var mlsStorageStatus by remember { mutableStateOf("Local MLS storage is not initialized.") }
     var activeConversationId by remember { mutableStateOf<String?>(null) }
     var user by remember { mutableStateOf<AuthUser?>(null) }
     var access by remember { mutableStateOf(store.get("access")) }
@@ -184,6 +186,8 @@ private fun AtomosApp(
         try {
             user = withContext(Dispatchers.IO) { auth.user(token) }
             withContext(Dispatchers.IO) { messengerApi.importSession(token, store.get("refresh").orEmpty()) }
+            val keyReady = withContext(Dispatchers.IO) { mlsStorageKeyManager.initializeNative() }
+            mlsStorageStatus = if (keyReady) "Android Keystore key loaded into native storage codec; database provider is next." else "Native storage bridge is unavailable in this build."
             authState = "authenticated"
             authError = null
         } catch (_: Exception) {
@@ -195,6 +199,8 @@ private fun AtomosApp(
                     store.put("access", tokens.access)
                     store.put("refresh", tokens.refresh)
                     withContext(Dispatchers.IO) { messengerApi.importSession(tokens.access, tokens.refresh) }
+                    val keyReady = withContext(Dispatchers.IO) { mlsStorageKeyManager.initializeNative() }
+                    mlsStorageStatus = if (keyReady) "Android Keystore key loaded into native storage codec; database provider is next." else "Native storage bridge is unavailable in this build."
                     access = tokens.access
                     user = profile
                     authState = "authenticated"
@@ -357,6 +363,7 @@ private fun AtomosApp(
                     "Chats" -> MessagingInboxScreen(
                         api = messengerApi,
                         userId = user!!.id,
+                        storageStatus = mlsStorageStatus,
                         onPeople = { page = "People" },
                         onOpenConversation = { id -> activeConversationId = id; page = "Conversation" }
                     )
