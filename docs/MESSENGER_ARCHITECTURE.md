@@ -54,7 +54,7 @@ Before enabling cloud messaging, create a separately reviewed backend migration 
 
 Use strict row-level security and server-side authorization. Realtime is a delivery transport, not an authorization boundary. Push notifications must never include message plaintext.
 
-Authentication is a product decision that must be resolved before backend implementation. A messaging account needs a stable identity and authenticated device enrollment; do not assume the retired device-bridge OAuth flow is suitable or reintroduce it without explicit product approval.
+Preserve the previously selected account model: ordinary users can sign in, Discord OAuth PKCE remains the identity entry point, and existing server-derived owner/developer/user roles remain authoritative. Do not trust client-supplied role flags or editable user metadata. Device enrollment is an additional cryptographic trust step after account authentication, not a replacement for authentication. Use the established application backend and existing profile identities; keep messenger tables and object storage isolated from unrelated production data. Do not revive the retired device-bridge Edge Function or its separate project.
 
 ## Reuse and migration plan
 
