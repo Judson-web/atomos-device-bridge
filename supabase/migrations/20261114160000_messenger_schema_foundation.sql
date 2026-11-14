@@ -295,6 +295,10 @@ begin
   if p_user_id = v_actor then
     raise exception 'cannot_add_self' using errcode = '22023';
   end if;
+  if (select count(*) from messenger.conversation_members cm
+      where cm.conversation_id = p_conversation_id and cm.removed_at is null) >= 256 then
+    raise exception 'conversation_member_limit_reached' using errcode = '22023';
+  end if;
   if exists (
     select 1
     from messenger.conversation_members cm
@@ -378,6 +382,44 @@ begin
   update messenger.conversation_members
      set removed_at = now()
    where conversation_id = p_conversation_id and user_id = v_user_id;
+end;
+$;
+
+create or replace function messenger.transfer_ownership(
+  p_conversation_id uuid,
+  p_new_owner_id uuid
+)
+returns void
+language plpgsql
+security definer
+set search_path = pg_catalog, messenger
+as $
+begin
+  if auth.uid() is null then
+    raise exception 'authentication_required' using errcode = '28000';
+  end if;
+  if not exists (
+    select 1 from messenger.conversation_members
+    where conversation_id = p_conversation_id
+      and user_id = auth.uid()
+      and role = 'owner'
+      and removed_at is null
+    for update
+  ) then
+    raise exception 'owner_required' using errcode = '42501';
+  end if;
+  if not exists (
+    select 1 from messenger.conversation_members
+    where conversation_id = p_conversation_id
+      and user_id = p_new_owner_id
+      and removed_at is null
+  ) then
+    raise exception 'active_member_required' using errcode = '22023';
+  end if;
+  update messenger.conversation_members
+     set role = case when user_id = p_new_owner_id then 'owner' else 'admin' end
+   where conversation_id = p_conversation_id
+     and user_id in (auth.uid(), p_new_owner_id);
 end;
 $;
 
@@ -528,7 +570,9 @@ create policy attachments_read_members on messenger.attachments
   for select to authenticated using (messenger.is_member(conversation_id));
 create policy attachments_insert_own_member on messenger.attachments
   for insert to authenticated with check (
-    created_by = auth.uid() and messenger.is_member(conversation_id)
+    created_by = auth.uid()
+    and messenger.is_member(conversation_id)
+    and object_key like conversation_id::text || '/%'
   );
 
 create policy contact_requests_read_participants on messenger.contact_requests
@@ -590,11 +634,65 @@ revoke all on function messenger.add_conversation_member(uuid, uuid) from public
 revoke all on function messenger.respond_contact_request(uuid, text) from public;
 revoke all on function messenger.leave_conversation(uuid) from public;
 revoke all on function messenger.consume_key_package(text) from public;
+revoke all on function messenger.transfer_ownership(uuid, uuid) from public;
 grant execute on function messenger.create_conversation(text, uuid[]) to authenticated;
 grant execute on function messenger.add_conversation_member(uuid, uuid) to authenticated;
 grant execute on function messenger.respond_contact_request(uuid, text) to authenticated;
 grant execute on function messenger.leave_conversation(uuid) to authenticated;
 grant execute on function messenger.consume_key_package(text) to authenticated;
+grant execute on function messenger.transfer_ownership(uuid, uuid) to authenticated;
+
+
+-- Private ciphertext-only object storage. Object paths are
+-- <conversation UUID>/<opaque random object ID>; names and MIME metadata stay encrypted.
+insert into storage.buckets (id, name, public, file_size_limit)
+values ('messenger-attachments', 'messenger-attachments', false, 104857600)
+on conflict (id) do update
+set public = false, file_size_limit = excluded.file_size_limit;
+
+create policy messenger_attachment_objects_read on storage.objects
+  for select to authenticated using (
+    bucket_id = 'messenger-attachments'
+    and coalesce((storage.foldername(name))[1], '') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
+  'Atomos Messenger. Payloads and attachment bytes are ciphertext only; protocol and key lifecycle are client-owned.';
+
+    and messenger.is_member(((storage.foldername(name))[1])::uuid)
+  );
+
+create policy messenger_attachment_objects_insert on storage.objects
+  for insert to authenticated with check (
+    bucket_id = 'messenger-attachments'
+    and coalesce((storage.foldername(name))[1], '') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
+  'Atomos Messenger. Payloads and attachment bytes are ciphertext only; protocol and key lifecycle are client-owned.';
+
+    and messenger.is_member(((storage.foldername(name))[1])::uuid)
+  );
+
+create policy messenger_attachment_objects_delete_own on storage.objects
+  for delete to authenticated using (
+    bucket_id = 'messenger-attachments'
+    and exists (
+      select 1 from messenger.attachments a
+      where a.object_key = name
+        and a.created_by = auth.uid()
+        and messenger.is_member(a.conversation_id)
+    )
+  );
+
+-- Enable Postgres Changes delivery if the standard Supabase publication exists.
+do $
+begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime')
+     and not exists (
+       select 1 from pg_publication_tables
+       where pubname = 'supabase_realtime'
+         and schemaname = 'messenger'
+         and tablename = 'messages'
+     ) then
+    alter publication supabase_realtime add table messenger.messages;
+  end if;
+end
+$;
 
 comment on schema messenger is
   'Atomos Messenger. Payloads and attachment bytes are ciphertext only; protocol and key lifecycle are client-owned.';
