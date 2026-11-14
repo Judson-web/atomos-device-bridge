@@ -221,6 +221,19 @@ begin
   if p_kind = 'direct' and v_member_count <> 2 then
     raise exception 'direct_conversation_requires_two_members' using errcode = '22023';
   end if;
+  if p_kind = 'direct' and not exists (
+    select 1
+    from unnest(v_members) as participant(user_id)
+    join messenger.contact_requests cr
+      on cr.status = 'accepted'
+     and (
+       (cr.requester_id = v_user_id and cr.target_id = participant.user_id)
+       or (cr.target_id = v_user_id and cr.requester_id = participant.user_id)
+     )
+    where participant.user_id <> v_user_id
+  ) then
+    raise exception 'accepted_contact_required_for_direct_conversation' using errcode = '42501';
+  end if;
 
   if exists (
     select 1
@@ -283,11 +296,15 @@ begin
     raise exception 'cannot_add_self' using errcode = '22023';
   end if;
   if exists (
-    select 1 from messenger.blocks b
-    where (b.blocker_id = v_actor and b.blocked_id = p_user_id)
-       or (b.blocker_id = p_user_id and b.blocked_id = v_actor)
+    select 1
+    from messenger.conversation_members cm
+    join messenger.blocks b
+      on (b.blocker_id = cm.user_id and b.blocked_id = p_user_id)
+      or (b.blocker_id = p_user_id and b.blocked_id = cm.user_id)
+    where cm.conversation_id = p_conversation_id
+      and cm.removed_at is null
   ) then
-    raise exception 'blocked_relationship' using errcode = '42501';
+    raise exception 'blocked_relationship_with_group_member' using errcode = '42501';
   end if;
   if not exists (select 1 from auth.users where id = p_user_id) then
     raise exception 'unknown_member' using errcode = '22023';
