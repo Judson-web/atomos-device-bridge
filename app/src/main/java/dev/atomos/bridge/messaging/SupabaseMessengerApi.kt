@@ -1,3 +1,5 @@
+@file:OptIn(io.github.jan.supabase.SupabaseExperimental::class)
+
 package dev.atomos.bridge.messaging
 
 import io.github.jan.supabase.SupabaseClient
