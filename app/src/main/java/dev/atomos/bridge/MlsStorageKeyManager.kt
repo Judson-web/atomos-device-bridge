@@ -22,7 +22,6 @@ class MlsStorageKeyManager(
     private val secureStore: SecureStore,
     accountId: String
 ) {
-    private val appContext = context.applicationContext
     private val accountSuffix = accountId.replace("-", "").lowercase().take(16).also {
         require(it.length == 16 && it.all { char -> char.isLetterOrDigit() }) { "Invalid account identifier." }
     }
@@ -65,6 +64,9 @@ class MlsStorageKeyManager(
     private fun loadOrCreateStorageKey(databaseFile: File): ByteArray {
         val wrapped = secureStore.getStrict(secureStoreName)
         if (wrapped != null) {
+            check(databaseFile.exists() && databaseFile.length() > 0L) {
+                "The MLS database is missing while its wrapped key remains. Refusing to create an empty replacement."
+            }
             val packed = Base64.decode(wrapped, Base64.NO_WRAP)
             require(packed.size > ivBytes + 16) { "Wrapped MLS storage key is damaged." }
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
