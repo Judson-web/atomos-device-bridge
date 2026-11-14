@@ -32,7 +32,7 @@ class MlsStorageKeyManager(
 
     fun initializeNative(databaseFile: File): Boolean {
         NativeMlsBridge.closeDatabase()
-        val storageKey = loadOrCreateStorageKey()
+        val storageKey = loadOrCreateStorageKey(databaseFile)
         return try {
             if (!NativeMlsBridge.initializeStorageKey(storageKey)) return false
             val opened = NativeMlsBridge.openDatabase(databaseFile.absolutePath)
@@ -48,7 +48,7 @@ class MlsStorageKeyManager(
         NativeMlsBridge.clearStorageKey()
     }
 
-    private fun loadOrCreateStorageKey(): ByteArray {
+    private fun loadOrCreateStorageKey(databaseFile: File): ByteArray {
         val wrapped = secureStore.getStrict(secureStoreName)
         if (wrapped != null) {
             val packed = Base64.decode(wrapped, Base64.NO_WRAP)
@@ -62,6 +62,10 @@ class MlsStorageKeyManager(
             val unwrapped = cipher.doFinal(packed.copyOfRange(ivBytes, packed.size))
             require(unwrapped.size == 32) { "Wrapped MLS storage key has an invalid length." }
             return unwrapped
+        }
+
+        check(!databaseFile.exists() || databaseFile.length() == 0L) {
+            "The MLS database exists but its wrapped storage key is missing. Refusing to generate a replacement key."
         }
 
         val generated = ByteArray(32).also { SecureRandom().nextBytes(it) }
