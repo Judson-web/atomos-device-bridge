@@ -412,7 +412,7 @@ private fun AtomosApp(
                         onOpenConversation = { id -> activeConversationId = id; page = "Conversation" }
                     )
                     "Conversation" -> activeConversationId?.let { id ->
-                        ConversationSetupScreen(conversationId = id, onBack = { page = "Chats" })
+                        ConversationSetupScreen(conversationId = id, api = messengerApi, userId = user!!.id, deviceId = activeDeviceId.orEmpty(), onBack = { page = "Chats" })
                     }
                     "People" -> PeopleDiscoveryScreen(
                         api = messengerApi,
