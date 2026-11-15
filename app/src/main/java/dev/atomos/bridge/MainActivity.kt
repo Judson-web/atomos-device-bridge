@@ -172,9 +172,26 @@ private fun AtomosApp(
         } catch (e: Exception) {
             // A malformed or stale deep link must never revoke an existing local session.
             store.remove("oauth_verifier")
-            authState = if (access.isNullOrBlank()) "signed_out" else "checking"
             authError = e.message ?: "Please try again."
             status = "Authentication failed."
+            val existingAccess = access
+            if (!existingAccess.isNullOrBlank()) {
+                try {
+                    val profile = withContext(Dispatchers.IO) { auth.user(existingAccess) }
+                    withContext(Dispatchers.IO) {
+                        messengerApi.importSession(existingAccess, store.get("refresh").orEmpty())
+                    }
+                    user = profile
+                    authState = "authenticated"
+                } catch (_: Exception) {
+                    store.remove("access", "refresh")
+                    access = null
+                    user = null
+                    authState = "signed_out"
+                }
+            } else {
+                authState = "signed_out"
+            }
         }
         clearCallback()
     }
