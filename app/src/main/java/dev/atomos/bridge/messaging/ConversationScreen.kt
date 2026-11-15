@@ -20,6 +20,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -37,6 +41,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -70,6 +76,9 @@ fun ConversationSetupScreen(
     onBack: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    val clipboard = LocalClipboardManager.current
+    var menuExpanded by remember(conversationId) { mutableStateOf(false) }
+    var showConversationInfo by remember(conversationId) { mutableStateOf(false) }
     val messages = remember(conversationId) { mutableStateListOf<RenderedMessage>() }
     val listState = rememberLazyListState()
     var draft by remember { mutableStateOf("") }
@@ -215,6 +224,39 @@ fun ConversationSetupScreen(
                     Text(status, color = ChatMuted, fontSize = 10.sp, maxLines = 1)
                 }
             }
+            Box {
+                Text("⋮", color = Color.White, fontSize = 23.sp, modifier = Modifier.clickable { menuExpanded = true }.padding(8.dp))
+                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Conversation details") },
+                        onClick = { menuExpanded = false; showConversationInfo = true }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Copy conversation ID") },
+                        onClick = { menuExpanded = false; clipboard.setText(AnnotatedString(conversationId)) }
+                    )
+                }
+            }
+        }
+        if (showConversationInfo) {
+            AlertDialog(
+                onDismissRequest = { showConversationInfo = false },
+                title = { Text(conversationTitle) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Conversation ID", fontWeight = FontWeight.SemiBold)
+                        Text(conversationId, color = ChatMuted, style = MaterialTheme.typography.bodySmall)
+                        Text(if (secureGroupReady) "This device has an active local MLS group." else "This device is waiting for secure group setup.", color = ChatMuted)
+                        Text("Messages are stored as ciphertext by the messaging service.", color = ChatMuted)
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { clipboard.setText(AnnotatedString(conversationId)); showConversationInfo = false }) {
+                        Text("Copy ID")
+                    }
+                },
+                dismissButton = { TextButton(onClick = { showConversationInfo = false }) { Text("Close") } }
+            )
         }
 
         Box(
