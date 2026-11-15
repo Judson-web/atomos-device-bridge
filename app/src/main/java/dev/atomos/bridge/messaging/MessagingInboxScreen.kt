@@ -7,10 +7,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -233,32 +231,6 @@ fun MessagingInboxScreen(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun StatusBubble(
-    symbol: String,
-    label: String,
-    highlighted: Boolean,
-    modifier: Modifier,
-    onClick: () -> Unit
-) {
-    Column(
-        modifier = modifier.clickable(onClick = onClick),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(5.dp)
-    ) {
-        Box(
-            Modifier.size(48.dp).background(
-                if (highlighted) Color(0xFF292442) else InboxRaised,
-                CircleShape
-            ).border(1.dp, if (highlighted) InboxAccent else Color(0xFF30384A), CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(symbol, color = if (highlighted) InboxAccent else Color(0xFFD8D9E4), fontSize = 21.sp)
-        }
-        Text(label, color = InboxMuted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
