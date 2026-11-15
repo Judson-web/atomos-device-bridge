@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -93,6 +94,9 @@ fun ConversationSetupScreen(
     val secureGroupReady = NativeMlsBridge.hasGroup(conversationId)
 
     suspend fun consume(rows: List<MessengerCiphertextRow>) {
+        val followLatest = messages.isEmpty() ||
+            (listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1) >= messages.lastIndex - 1
+        var addedAny = false
         rows.sortedBy { it.createdAt }.forEach { row ->
             if (messages.any { it.id == row.id }) return@forEach
             val clear = if (row.senderDeviceId == deviceId) {
@@ -116,11 +120,15 @@ fun ConversationSetupScreen(
                             row.createdAt.substringAfter("T", "").take(5)
                         )
                     )
+                    addedAny = true
                     if (row.senderUserId != userId) {
                         runCatching { api.markMessageRead(row.id, userId) }
                     }
                 }
             }
+        }
+        if (addedAny && followLatest && messages.isNotEmpty()) {
+            listState.animateScrollToItem(messages.lastIndex)
         }
     }
 
@@ -193,12 +201,9 @@ fun ConversationSetupScreen(
         }
     }
 
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
-    }
 
     Column(
-        modifier = Modifier.fillMaxSize().background(
+        modifier = Modifier.fillMaxSize().imePadding().background(
             Brush.verticalGradient(
                 listOf(ChatBackground, Color(0xFF0D1220), ChatBackground)
             )
@@ -374,6 +379,7 @@ fun ConversationSetupScreen(
                         val text = draft.trim()
                         if (text.isNotEmpty()) scope.launch {
                             sending = true
+                            status = "Encrypting and sending…"
                             try {
                                 val messageId = UUID.randomUUID().toString()
                                 val ciphertext = withContext(Dispatchers.IO) {
@@ -401,8 +407,9 @@ fun ConversationSetupScreen(
                                         LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm"))
                                     )
                                 )
+                                listState.animateScrollToItem(messages.lastIndex)
                                 draft = ""
-                                status = "MLS session active"
+                                status = "Message sent securely"
                             } catch (e: Exception) {
                                 status = e.message ?: "Message could not be sent."
                             } finally {
