@@ -157,7 +157,7 @@ fun ConversationSetupScreen(
             }
 
             status = deliveryWarning ?: if (NativeMlsBridge.hasGroup(conversationId)) {
-                "MLS encryption active · experimental"
+                "MLS session active"
             } else {
                 "Waiting for secure group setup"
             }
@@ -284,7 +284,7 @@ fun ConversationSetupScreen(
                                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
                                         Text(message.time, color = Color(0xFFB8B2D2), fontSize = 9.sp)
-                                        if (message.mine) Text("✓✓", color = ChatAccent, fontSize = 9.sp)
+                                        if (message.mine) Text("✓", color = ChatAccent, fontSize = 9.sp)
                                     }
                                 }
                             }
@@ -316,7 +316,7 @@ fun ConversationSetupScreen(
                     value = draft,
                     onValueChange = { draft = it.take(4000) },
                     modifier = Modifier.weight(1f),
-                    placeholder = { Text("Message", color = ChatMuted) },
+                    placeholder = { Text("Write a message", color = ChatMuted) },
                     shape = RoundedCornerShape(22.dp),
                     maxLines = 5,
                     enabled = !sending && secureGroupReady
