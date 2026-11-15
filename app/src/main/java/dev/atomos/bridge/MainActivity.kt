@@ -181,22 +181,36 @@ private fun AtomosApp(
             store.remove("oauth_verifier")
             authError = e.message ?: "Please try again."
             status = "Authentication failed."
-            val existingAccess = access
-            if (!existingAccess.isNullOrBlank()) {
-                try {
-                    val profile = withContext(Dispatchers.IO) { auth.user(existingAccess) }
-                    withContext(Dispatchers.IO) {
-                        messengerApi.importSession(existingAccess, store.get("refresh").orEmpty())
-                    }
-                    user = profile
-                    authState = "authenticated"
-                } catch (_: Exception) {
-                    store.remove("access", "refresh")
-                    access = null
-                    user = null
-                    authState = "signed_out"
+            try {
+                var sessionAccess = access.orEmpty()
+                var sessionRefresh = store.get("refresh").orEmpty()
+                var profile = if (sessionAccess.isNotBlank()) {
+                    runCatching { withContext(Dispatchers.IO) { auth.user(sessionAccess) } }.getOrNull()
+                } else null
+
+                if (profile == null && sessionRefresh.isNotBlank()) {
+                    val refreshed = withContext(Dispatchers.IO) { auth.refresh(sessionRefresh) }
+                    sessionAccess = refreshed.access
+                    sessionRefresh = refreshed.refresh
+                    profile = withContext(Dispatchers.IO) { auth.user(sessionAccess) }
+                    store.put("access", sessionAccess)
+                    store.put("refresh", sessionRefresh)
+                    access = sessionAccess
                 }
-            } else {
+
+                check(profile != null && sessionAccess.isNotBlank()) {
+                    "Your saved session has expired. Please sign in again."
+                }
+                withContext(Dispatchers.IO) {
+                    messengerApi.importSession(sessionAccess, sessionRefresh)
+                }
+                access = sessionAccess
+                user = profile
+                authState = "authenticated"
+            } catch (_: Exception) {
+                store.remove("access", "refresh")
+                access = null
+                user = null
                 authState = "signed_out"
             }
         }
