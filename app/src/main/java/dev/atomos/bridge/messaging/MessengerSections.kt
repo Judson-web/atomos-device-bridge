@@ -61,6 +61,8 @@ fun PeopleDiscoveryScreen(
     var accepted by remember { mutableStateOf<List<Pair<MessengerContactRequest, MessengerProfile>>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
     var searching by remember { mutableStateOf(false) }
+    var sendingRequest by remember { mutableStateOf(false) }
+    var startingChatFor by remember { mutableStateOf<String?>(null) }
     var status by remember { mutableStateOf<String?>(null) }
 
     suspend fun reloadContacts() {
@@ -83,6 +85,7 @@ fun PeopleDiscoveryScreen(
     }
 
     LaunchedEffect(currentUserId) {
+        reloadContacts()
         try {
             api.observeContactRequests().collect { reloadContacts() }
         } catch (e: Exception) {
@@ -107,7 +110,11 @@ fun PeopleDiscoveryScreen(
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("FIND SOMEONE", color = MessengerPageAccent, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                 OutlinedTextField(
-                    value = username, onValueChange = { username = it.take(33) },
+                    value = username, onValueChange = {
+                        username = it.take(33)
+                        foundProfile = null
+                        status = null
+                    },
                     modifier = Modifier.fillMaxWidth(), label = { Text("Atomos username") },
                     placeholder = { Text("e.g. judson_01") }, singleLine = true
                 )
@@ -117,14 +124,14 @@ fun PeopleDiscoveryScreen(
                             searching = true
                             status = null
                             try {
-                                foundProfile = api.searchProfile(username)
+                                foundProfile = api.searchProfile(username.trim().removePrefix("@"))
                                 if (foundProfile == null) status = "No account found with that username."
                             } catch (e: Exception) {
                                 status = e.message ?: "Search failed."
                             } finally { searching = false }
                         }
                     },
-                    enabled = !searching && username.isNotBlank(), modifier = Modifier.fillMaxWidth()
+                    enabled = !searching && username.trim().removePrefix("@").isNotBlank(), modifier = Modifier.fillMaxWidth()
                 ) { Text(if (searching) "Searching…" else "Search username") }
                 foundProfile?.let { profile ->
                     if (profile.userId != currentUserId) {
@@ -136,14 +143,19 @@ fun PeopleDiscoveryScreen(
                                 Text(profile.displayName, color = Color.White, fontWeight = FontWeight.SemiBold)
                                 Text("@${profile.username}", color = MessengerPageMuted, style = MaterialTheme.typography.bodySmall)
                             }
-                            OutlinedButton(onClick = {
-                                scope.launch {
-                                    try {
-                                        api.sendContactRequest(currentUserId, profile.userId)
-                                        status = "Contact request sent to @${profile.username}."
-                                    } catch (e: Exception) { status = e.message ?: "Unable to send request." }
+                            OutlinedButton(
+                                enabled = !sendingRequest,
+                                onClick = {
+                                    scope.launch {
+                                        sendingRequest = true
+                                        try {
+                                            api.sendContactRequest(currentUserId, profile.userId)
+                                            status = "Contact request sent to @${profile.username}."
+                                        } catch (e: Exception) { status = e.message ?: "Unable to send request." }
+                                        finally { sendingRequest = false }
+                                    }
                                 }
-                            }) { Text("Add") }
+                            ) { Text(if (sendingRequest) "Sending…" else "Add contact") }
                         }
                     }
                 }
@@ -205,8 +217,9 @@ fun PeopleDiscoveryScreen(
                         Text("@${profile.username}", color = MessengerPageMuted, style = MaterialTheme.typography.bodySmall)
                     }
                     Button(
-                        enabled = currentDeviceId.isNotBlank(),
+                        enabled = currentDeviceId.isNotBlank() && startingChatFor == null,
                         onClick = {
+                            startingChatFor = profile.userId
                             scope.launch {
                                 try {
                                     val conversationId = api.createDirectConversation(profile.userId)
@@ -246,10 +259,12 @@ fun PeopleDiscoveryScreen(
                                     onConversationCreated(conversationId)
                                 } catch (e: Exception) {
                                     status = e.message ?: "Unable to create secure conversation."
+                                } finally {
+                                    startingChatFor = null
                                 }
                             }
                         }
-                    ) { Text("Chat") }
+                    ) { Text(if (startingChatFor == profile.userId) "Starting…" else "Chat") }
                 }
             }
         }
