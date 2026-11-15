@@ -237,21 +237,11 @@ fun MessagingInboxScreen(
                 }
             }
             Box {
-                Text(
-                    "⋮",
-                    color = InboxMuted,
-                    fontSize = 22.sp,
-                    modifier = Modifier.clickable { menuExpanded = true }.padding(horizontal = 5.dp, vertical = 8.dp)
-                )
+                Text("⋮", color = InboxMuted, fontSize = 22.sp,
+                    modifier = Modifier.clickable { menuExpanded = true }.padding(horizontal = 5.dp, vertical = 8.dp))
                 DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                    DropdownMenuItem(
-                        text = { Text("Open conversation") },
-                        onClick = { menuExpanded = false; onClick() }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Copy contact name") },
-                        onClick = { menuExpanded = false; onCopyName() }
-                    )
+                    DropdownMenuItem(text = { Text("Open conversation") }, onClick = { menuExpanded = false; onClick() })
+                    DropdownMenuItem(text = { Text("Copy contact name") }, onClick = { menuExpanded = false; onCopyName() })
                 }
             }
         }
