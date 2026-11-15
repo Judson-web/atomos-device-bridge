@@ -152,7 +152,14 @@ private fun AtomosApp(
         val oauthError = uri.getQueryParameter("error_description") ?: uri.getQueryParameter("error")
         val verifier = store.get("oauth_verifier")
         try {
-            require(uri.scheme == "dev.atomos.bridge" && uri.host == "auth-callback") {
+            require(
+                uri.scheme == "dev.atomos.bridge" &&
+                    uri.host == "auth-callback" &&
+                    uri.port == -1 &&
+                    uri.userInfo == null &&
+                    uri.path.isNullOrEmpty() &&
+                    uri.fragment == null
+            ) {
                 "This sign-in link is not a valid Atomos callback."
             }
             if (!oauthError.isNullOrBlank()) error(oauthError)
