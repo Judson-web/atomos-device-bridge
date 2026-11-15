@@ -1,6 +1,6 @@
 # Atomos Messenger Architecture
 
-Status: architecture baseline, not a claim that end-to-end encryption is implemented.
+Status: implementation and production-release requirements. This document is not a security certification.
 
 ## Product direction
 
