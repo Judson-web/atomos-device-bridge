@@ -114,28 +114,30 @@ fun AuthGateScreen(error: String?, launching: Boolean, onSignIn: () -> Unit) {
 
 @Composable
 fun ProfileScreen(user: AuthUser, ip: String, status: String, onSignOut: () -> Unit) {
+    val displayName = user.name?.takeIf { it.isNotBlank() } ?: "Atomos user"
     Column(
-        modifier = Modifier.fillMaxSize().padding(vertical = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        modifier = Modifier.fillMaxSize().background(AuthBackground)
+            .padding(horizontal = 20.dp, vertical = 18.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text("Your profile", color = Color.White, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Box(
+            modifier = Modifier.size(88.dp).background(Color(0xFF292442), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(displayName.take(1).uppercase(), color = AuthViolet, fontSize = 38.sp, fontWeight = FontWeight.Bold)
+        }
+        Text(displayName, color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Text(user.email ?: "Connected Discord account", color = Color(0xFF9299AC), style = MaterialTheme.typography.bodyMedium)
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(22.dp),
             colors = CardDefaults.cardColors(containerColor = AuthSurfaceDark)
         ) {
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text("ATOMOS ACCOUNT", color = AuthViolet, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                Text(user.name ?: "Atomos user", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                Text(user.email ?: "Discord account", color = Color(0xFF9299AC), style = MaterialTheme.typography.bodyMedium)
+            Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("ACCOUNT", color = AuthViolet, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                Text("Connected with Discord", color = Color.White, fontWeight = FontWeight.SemiBold)
                 Text("Account ID: ${user.id}", color = Color(0xFF737B8E), style = MaterialTheme.typography.labelSmall)
-                Spacer(Modifier.height(6.dp))
-                OutlinedButton(onClick = onSignOut, modifier = Modifier.fillMaxWidth()) {
-                    Text("Sign out")
-                }
             }
         }
         Card(
@@ -143,12 +145,16 @@ fun ProfileScreen(user: AuthUser, ip: String, status: String, onSignOut: () -> U
             shape = RoundedCornerShape(22.dp),
             colors = CardDefaults.cardColors(containerColor = AuthSurfaceDark)
         ) {
-            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("DEVICE", color = AuthViolet, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                Text("Local IP: ${ip.ifBlank { "Unavailable" }}", color = Color.White)
-                Text("Android 10 and newer", color = Color(0xFF9299AC), style = MaterialTheme.typography.bodySmall)
-                Text(status, color = Color(0xFF9299AC), style = MaterialTheme.typography.bodySmall)
+            Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("THIS DEVICE", color = AuthViolet, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                Text("Android device", color = Color.White)
+                Text("Local network: ${ip.ifBlank { "Unavailable" }}", color = Color(0xFF9299AC), style = MaterialTheme.typography.bodySmall)
+                Text(status, color = Color(0xFF9299AC), style = MaterialTheme.typography.bodySmall, lineHeight = 18.sp)
             }
+        }
+        Spacer(Modifier.height(4.dp))
+        OutlinedButton(onClick = onSignOut, modifier = Modifier.fillMaxWidth()) {
+            Text("Sign out")
         }
     }
 }
