@@ -3,6 +3,7 @@ package dev.atomos.bridge
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.Build
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -10,10 +11,14 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -31,6 +36,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
+import dev.atomos.bridge.messaging.MessagingInboxScreen
+import dev.atomos.bridge.messaging.PeopleDiscoveryScreen
+import dev.atomos.bridge.messaging.SharedMediaScreen
+import dev.atomos.bridge.messaging.ConversationSetupScreen
+import dev.atomos.bridge.messaging.SupabaseMessengerApi
+import dev.atomos.bridge.messaging.NativeMlsBridge
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.math.roundToInt
@@ -71,22 +82,56 @@ private fun copyUriToCache(context: android.content.Context, uri: Uri, displayNa
 }
 
 class MainActivity : ComponentActivity() {
+    private var authCallback by mutableStateOf<Uri?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
+        authCallback = intent?.data
         val store = SecureStore(this)
-        store.remove("access", "refresh", "oauth_verifier")
-        setContent { AtomosApp(store, lifecycleScope) }
+        setContent {
+            AtomosApp(
+                store = store,
+                activityScope = lifecycleScope,
+                callback = authCallback,
+                clearCallback = { authCallback = null },
+                openBrowser = { url -> startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+            )
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        authCallback = intent.data
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AtomosApp(store: SecureStore, activityScope: CoroutineScope) {
+private fun AtomosApp(
+    store: SecureStore,
+    activityScope: CoroutineScope,
+    callback: Uri?,
+    clearCallback: () -> Unit,
+    openBrowser: (String) -> Unit
+) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val auth = remember { SupabaseAuth() }
+    val messengerApi = remember { SupabaseMessengerApi() }
+    var mlsStorageStatus by remember { mutableStateOf("Local MLS storage is not initialized.") }
+    var activeDeviceId by remember { mutableStateOf<String?>(null) }
+    var activeConversationId by remember { mutableStateOf<String?>(null) }
+    var user by remember { mutableStateOf<AuthUser?>(null) }
+    var access by remember { mutableStateOf(store.get("access")) }
+    var authState by remember { mutableStateOf(if (access.isNullOrBlank()) "signed_out" else "checking") }
+    var authError by remember { mutableStateOf<String?>(null) }
+    var authLaunching by remember { mutableStateOf(false) }
     // Activity-owned work survives temporary Compose screen removal during system pickers and dialogs.
     val monitor = remember { NetworkMonitor(context) }
-    var page by remember { mutableStateOf("Files") }
+    var page by remember { mutableStateOf("Chats") }
+    var overflowExpanded by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("Ready") }
     var network by remember { mutableStateOf(NetworkSnapshot(false, "Offline", false, 0, 0, "")) }
@@ -104,6 +149,195 @@ private fun AtomosApp(store: SecureStore, activityScope: CoroutineScope) {
     fun refreshFiles(dir: DocumentFile?) {
         entries = dir?.listFiles()?.sortedWith(compareByDescending<DocumentFile> { it.isDirectory }.thenBy { it.name?.lowercase() })?.toList().orEmpty()
     }
+    LaunchedEffect(callback) {
+        val uri = callback ?: return@LaunchedEffect
+        authState = "checking"
+        authLaunching = false
+        val code = uri.getQueryParameter("code")
+        val oauthError = uri.getQueryParameter("error_description") ?: uri.getQueryParameter("error")
+        val verifier = store.get("oauth_verifier")
+        try {
+            require(
+                uri.scheme == "dev.atomos.bridge" &&
+                    uri.host == "auth-callback" &&
+                    uri.port == -1 &&
+                    uri.userInfo == null &&
+                    uri.path.isNullOrEmpty() &&
+                    uri.fragment == null
+            ) {
+                "This sign-in link is not a valid Atomos callback."
+            }
+            if (!oauthError.isNullOrBlank()) error(oauthError)
+            require(!code.isNullOrBlank() && !verifier.isNullOrBlank()) {
+                "Discord sign-in could not be completed."
+            }
+            val tokens = withContext(Dispatchers.IO) { auth.exchange(code, verifier) }
+            val profile = withContext(Dispatchers.IO) { auth.user(tokens.access) }
+            store.put("access", tokens.access)
+            store.put("refresh", tokens.refresh)
+            store.remove("oauth_verifier")
+            access = tokens.access
+            user = profile
+            authState = "authenticated"
+            authError = null
+            status = "Signed in with Discord."
+        } catch (e: Exception) {
+            // A malformed or stale deep link must never revoke an existing local session.
+            store.remove("oauth_verifier")
+            authError = e.message ?: "Please try again."
+            status = "Authentication failed."
+            try {
+                var sessionAccess = access.orEmpty()
+                var sessionRefresh = store.get("refresh").orEmpty()
+                var profile = if (sessionAccess.isNotBlank()) {
+                    runCatching { withContext(Dispatchers.IO) { auth.user(sessionAccess) } }.getOrNull()
+                } else null
+
+                if (profile == null && sessionRefresh.isNotBlank()) {
+                    val refreshed = withContext(Dispatchers.IO) { auth.refresh(sessionRefresh) }
+                    sessionAccess = refreshed.access
+                    sessionRefresh = refreshed.refresh
+                    profile = withContext(Dispatchers.IO) { auth.user(sessionAccess) }
+                    store.put("access", sessionAccess)
+                    store.put("refresh", sessionRefresh)
+                    access = sessionAccess
+                }
+
+                check(profile != null && sessionAccess.isNotBlank()) {
+                    "Your saved session has expired. Please sign in again."
+                }
+                withContext(Dispatchers.IO) {
+                    messengerApi.importSession(sessionAccess, sessionRefresh)
+                }
+                access = sessionAccess
+                user = profile
+                authState = "authenticated"
+            } catch (_: Exception) {
+                store.remove("access", "refresh")
+                access = null
+                user = null
+                authState = "signed_out"
+            }
+        }
+        clearCallback()
+    }
+    suspend fun initializeMessagingDevice(profile: AuthUser): String {
+        activeDeviceId = null
+        val manager = MlsStorageKeyManager(store, profile.id)
+        val database = File(context.filesDir, "atomos_mls_${profile.id.replace("-", "")}.db")
+        val deviceId = manager.deviceIdOrCreate()
+
+        // A revoked device's local MLS groups still contain its old signing identity.
+        // Rotating only the server device ID would mislabel messages signed by that
+        // revoked identity. Fail closed until the group-rekey/recovery flow exists.
+        if (messengerApi.deviceIsRevoked(deviceId)) {
+            return "This device was revoked. Messaging is locked until its conversations are re-keyed and a new device enrollment is completed."
+        }
+
+        if (!withContext(Dispatchers.IO) { manager.initializeNative(database) }) {
+            return "Encrypted native MLS storage is unavailable in this build."
+        }
+        if (!messengerApi.deviceExists(deviceId)) {
+            val bundles = withContext(Dispatchers.IO) {
+                manager.createDeviceKeyPackages(profile.id, deviceId, 10)
+            } ?: error("Unable to create device MLS KeyPackages.")
+            messengerApi.registerDevice(
+                userId = profile.id,
+                deviceId = deviceId,
+                label = Build.MODEL.ifBlank { "Android device" },
+                bundles = bundles
+            )
+        } else if (messengerApi.activeKeyPackageCount(deviceId) < 5) {
+            val bundles = withContext(Dispatchers.IO) {
+                manager.createDeviceKeyPackages(profile.id, deviceId, 10)
+            } ?: error("Unable to renew device MLS KeyPackages.")
+            messengerApi.publishKeyPackages(deviceId, bundles)
+        }
+        activeDeviceId = deviceId
+        return "Device enrolled; encrypted MLS storage and a pool of one-time KeyPackages are ready."
+    }
+
+    LaunchedEffect(access) {
+        if (callback != null) return@LaunchedEffect
+        val token = access
+        if (token.isNullOrBlank()) {
+            user = null
+            authState = "signed_out"
+            return@LaunchedEffect
+        }
+        authState = "checking"
+        try {
+            val profile = withContext(Dispatchers.IO) { auth.user(token) }
+            user = profile
+            withContext(Dispatchers.IO) { messengerApi.importSession(token, store.get("refresh").orEmpty()) }
+            mlsStorageStatus = try {
+                initializeMessagingDevice(profile)
+            } catch (e: Exception) {
+                "Secure device enrollment failed: ${e.message ?: "unknown error"}"
+            }
+            authState = "authenticated"
+            authError = null
+        } catch (_: Exception) {
+            val refreshToken = store.get("refresh")
+            if (refreshToken != null) {
+                try {
+                    val tokens = withContext(Dispatchers.IO) { auth.refresh(refreshToken) }
+                    val profile = withContext(Dispatchers.IO) { auth.user(tokens.access) }
+                    store.put("access", tokens.access)
+                    store.put("refresh", tokens.refresh)
+                    withContext(Dispatchers.IO) { messengerApi.importSession(tokens.access, tokens.refresh) }
+                    mlsStorageStatus = try {
+                        initializeMessagingDevice(profile)
+                    } catch (enrollmentError: Exception) {
+                        "Secure device enrollment failed: ${enrollmentError.message ?: "unknown error"}"
+                    }
+                    access = tokens.access
+                    user = profile
+                    authState = "authenticated"
+                    authError = null
+                } catch (e: Exception) {
+                    store.remove("access", "refresh")
+                    access = null
+                    user = null
+                    authState = "signed_out"
+                    authError = e.message ?: "Your session expired. Sign in again."
+                }
+            } else {
+                store.remove("access")
+                access = null
+                user = null
+                authState = "signed_out"
+            }
+        }
+    }
+    val beginSignIn: () -> Unit = {
+        scope.launch {
+            authError = null
+            authLaunching = true
+            try {
+                val verifier = auth.verifier()
+                store.put("oauth_verifier", verifier)
+                openBrowser(auth.discordUrl(verifier))
+                authLaunching = false
+            } catch (e: Exception) {
+                authLaunching = false
+                authError = e.message ?: "Unable to start Discord sign-in."
+            }
+        }
+    }
+    val signOut: () -> Unit = {
+        scope.launch { messengerApi.signOut() }
+        NativeMlsBridge.closeDatabase()
+        NativeMlsBridge.clearStorageKey()
+        activeDeviceId = null
+        store.remove("access", "refresh", "oauth_verifier")
+        access = null
+        user = null
+        authState = "signed_out"
+        authError = null
+        status = "Signed out."
+    }
+
     val treePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
             runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION) }
@@ -169,69 +403,102 @@ private fun AtomosApp(store: SecureStore, activityScope: CoroutineScope) {
     }
     LaunchedEffect(folderUri) { currentDirectory = folderUri?.let { DocumentFile.fromTreeUri(context, it) }; refreshFiles(currentDirectory) }
     MaterialTheme(colorScheme = darkColorScheme(primary = Violet, background = Background, surface = SurfaceDark)) {
-        Scaffold(
+        if (authState == "checking") {
+            AuthLoadingScreen()
+        } else if (authState != "authenticated" || user == null) {
+            AuthGateScreen(error = authError, launching = authLaunching, onSignIn = beginSignIn)
+        } else Scaffold(
             containerColor = Background,
             topBar = {
-                if (page != "Files") CenterAlignedTopAppBar(
-                    title = { Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("ATOMOS", fontWeight = FontWeight.Black, letterSpacing = 3.sp, fontSize = 16.sp)
-                        Text(if (network.connected) "${network.transport} · ↓ ${formatRate(network.downloadBps)} · ↑ ${formatRate(network.uploadBps)}" else "No internet connection", style = MaterialTheme.typography.labelSmall, color = if (network.connected) Violet else MaterialTheme.colorScheme.error)
-                    } },
-                    actions = { Text(if (network.validated) "●" else "○", color = if (network.validated) Violet else MaterialTheme.colorScheme.error, modifier = Modifier.padding(end = 18.dp)) },
-                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Background, titleContentColor = MaterialTheme.colorScheme.onBackground)
-                )
+                if (page != "Conversation") {
+                    Row(Modifier.fillMaxWidth().background(Background).padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        if (page in listOf("Privacy", "Terms", "About")) {
+                            Text("‹", color = Violet, fontSize = 30.sp, modifier = Modifier.clickable { page = "Settings" }.padding(end = 14.dp))
+                        }
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(when (page) {
+                                "Chats" -> "Atomos"; "People" -> "Contacts"; "Profile" -> "Profile"
+                                "Settings" -> "Settings"; "Privacy" -> "Privacy"; "Terms" -> "Terms of Service"
+                                "About" -> "About Atomos"; else -> "Atomos"
+                            }, color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.5).sp)
+                            Text(when (page) {
+                                "Chats" -> "YOUR MESSAGES"; "People" -> "PEOPLE YOU KNOW"; "Profile" -> "YOUR ACCOUNT"
+                                else -> "ATOMOS MESSENGER"
+                            }, color = Violet, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.7.sp)
+                        }
+                        Box {
+                            IconButton(onClick = { overflowExpanded = true }) { Text("⋮", color = Color.White, fontSize = 27.sp) }
+                            DropdownMenu(expanded = overflowExpanded, onDismissRequest = { overflowExpanded = false }) {
+                                DropdownMenuItem(text = { Text("Settings") }, onClick = { overflowExpanded = false; page = "Settings" })
+                            }
+                        }
+                    }
+                }
             },
             bottomBar = {
-                if (page != "Files") NavigationBar(containerColor = SurfaceDark) {
-                    listOf("Home", "Network", "Files", "Storage", "Installer", "Settings").forEach { item ->
-                        NavigationBarItem(selected = page == item, onClick = { page = item }, icon = { Text(when(item) { "Home" -> "⌂"; "Network" -> "⌁"; "Files" -> "▤"; "Storage" -> "◫"; "Installer" -> "⬇"; else -> "⚙" }) }, label = { Text(item) })
+                if (page in listOf("Chats", "People", "Profile")) {
+                    NavigationBar(containerColor = SurfaceDark) {
+                        listOf("Chats", "People", "Profile").forEach { item ->
+                            NavigationBarItem(
+                                selected = page == item, onClick = { page = item },
+                                icon = { Text(when (item) { "Chats" -> "▤"; "People" -> "◎"; else -> "◉" }, fontSize = 19.sp) },
+                                label = { Text(if (item == "People") "Contacts" else item) }
+                            )
+                        }
                     }
                 }
             }
         ) { padding ->
-            if (page == "Files") {
-                FileManagerScreen(
-                    onNavigate = { page = it },
-                    onInstallPackage = { file ->
-                        activityScope.launch {
-                            busy = true
-                            try {
-                                val prepared = withContext(Dispatchers.IO) {
-                                    val target = copyUriToCache(context, file.uri, file.name ?: "package.apk", "file")
-                                    ArchiveInstaller.prepare(context, target)
-                                }
-                                ArchiveInstaller.install(context, prepared)
-                                status = "Installer session started for ${prepared.label}"
-                            } catch (e: Exception) { status = e.message ?: "Install failed." }
-                            finally { busy = false }
-                        }
-                    }
-                )
-            } else Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 18.dp)) {
-                when (page) {
-                    "Home" -> HomePage(network, status, onNetwork = { page = "Network" }, onFiles = { page = "Files" }, onInstaller = { page = "Installer" }, onSpeed = { page = "Network" }, onStorage = { page = "Storage" })
-                    "Network" -> NetworkPage(network, speedResult, speedBusy, speedProgress) {
-                        if (!speedBusy) activityScope.launch {
-                            speedBusy = true; speedProgress = 0f
-                            try { speedResult = withContext(Dispatchers.IO) { runSpeedTest { speedProgress = it } } }
-                            catch (e: Exception) { speedResult = "Test failed: ${e.message}" }
-                            finally { speedBusy = false; speedProgress = 1f }
-                        }
-                    }
-                    "Storage" -> StorageInsightsScreen()
-                    "Installer" -> InstallerPage(status, busy, { filePicker.launch(arrayOf("*/*")) }, { status = "Supported: APK, APKM, APKS, APKX and XAPK. Split archives are installed as one package session." })
-                    "Settings" -> SettingsPage(status, network.ipAddress)
+            Box(Modifier.fillMaxSize().padding(padding)) {
+                // Keep primary destinations composed while hidden to preserve scroll and live subscriptions.
+                Box(Modifier.fillMaxSize().then(if (page == "Chats" || page == "Conversation") Modifier else Modifier.size(0.dp))) {
+                    MessagingInboxScreen(api = messengerApi, userId = user!!.id, storageStatus = mlsStorageStatus,
+                        onPeople = { page = "People" },
+                        onOpenConversation = { id -> activeConversationId = id; page = "Conversation" })
                 }
-                Spacer(Modifier.height(8.dp))
-                Text(status, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 8.dp))
+                Box(Modifier.fillMaxSize().then(if (page == "People") Modifier else Modifier.size(0.dp))) {
+                    PeopleDiscoveryScreen(api = messengerApi, currentUserId = user!!.id, currentDeviceId = activeDeviceId.orEmpty(),
+                        onConversationCreated = { id -> activeConversationId = id; page = "Conversation" })
+                }
+                Box(Modifier.fillMaxSize().then(if (page == "Profile") Modifier else Modifier.size(0.dp))) {
+                    ProfileScreen(user!!, network.ipAddress, status, signOut)
+                }
+                Box(Modifier.fillMaxSize().then(if (page == "Settings") Modifier else Modifier.size(0.dp))) {
+                    MessengerSettingsScreen(
+                        onPrivacy = { page = "Privacy" }, onTerms = { page = "Terms" }, onAbout = { page = "About" })
+                }
+                Box(Modifier.fillMaxSize().then(if (page == "Privacy") Modifier else Modifier.size(0.dp))) {
+                    MessengerPolicyScreen("Privacy", "How Atomos handles your information", listOf(
+                        "Atomos uses your account identity to provide sign-in, profile discovery, contact requests, and conversations.",
+                        "Conversation content is encrypted on your device with the MLS messaging implementation before ciphertext is sent to the service. This is not a claim of certification or independent security audit.",
+                        "Account and messaging metadata may be processed by the configured Supabase service to operate sign-in, contacts, conversation membership, delivery, and synchronization.",
+                        "Shared media transfer, complete multi-device recovery, and some privacy controls are not yet available. Avoid sending information that requires those unfinished protections.",
+                        "Signing out removes the locally stored session from this device. It does not automatically delete server-side account data."
+                    ))
+                }
+                Box(Modifier.fillMaxSize().then(if (page == "Terms") Modifier else Modifier.size(0.dp))) {
+                    MessengerPolicyScreen("Terms of Service", "Using Atomos Messenger", listOf(
+                        "Use Atomos lawfully and respectfully. You are responsible for the content you send and for protecting access to your device and account.",
+                        "Do not use the service to threaten, harass, impersonate, distribute unlawful material, or interfere with other people's use of the service.",
+                        "Atomos is under active development. Features may change, be unavailable, or contain defects. Keep independent copies of information you cannot afford to lose.",
+                        "Encryption features are still evolving. The app is not represented as independently audited, certified, or suitable for emergency or high-assurance communications.",
+                        "These in-app terms are a product notice, not a substitute for a final published legal policy. Final legal review and a support contact are required before broad commercial distribution."
+                    ))
+                }
+                Box(Modifier.fillMaxSize().then(if (page == "About") Modifier else Modifier.size(0.dp))) { MessengerAboutScreen() }
+                Box(Modifier.fillMaxSize().then(if (page == "Conversation") Modifier else Modifier.size(0.dp))) {
+                    activeConversationId?.let { id ->
+                        ConversationSetupScreen(conversationId = id, api = messengerApi, userId = user!!.id,
+                            deviceId = activeDeviceId.orEmpty(), onBack = { page = "Chats" })
+                    }
+                }
             }
         }
     }
-}
 
-@Composable private fun HomePage(n: NetworkSnapshot, status: String, onNetwork: () -> Unit, onFiles: () -> Unit, onInstaller: () -> Unit, onSpeed: () -> Unit, onStorage: () -> Unit) {
+@Composable private fun HomePage(n: NetworkSnapshot, status: String, onNetwork: () -> Unit, onFiles: () -> Unit, onInstaller: () -> Unit, onSpeed: () -> Unit, onStorage: () -> Unit, onChats: () -> Unit) {
     LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 18.dp)) {
-        item { Text("Your device, at a glance.", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
+        item { Text("More from Atomos", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
         item { Card(colors = CardDefaults.cardColors(containerColor = SurfaceDark), shape = RoundedCornerShape(24.dp)) {
             Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(if (n.validated) "INTERNET CONNECTED" else "CHECK CONNECTION", color = Violet, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
@@ -372,4 +639,73 @@ private fun runSpeedTest(progress: (Float) -> Unit): String {
     val ping = pings.average()
     val jitter = pings.maxOrNull()!! - pings.minOrNull()!!
     return "Download: ${"%.1f".format(downMbps)} Mbps\nUpload: ${"%.1f".format(upMbps)} Mbps\nLatency: ${"%.0f".format(ping)} ms · Jitter: ${"%.1f".format(jitter)} ms"
+}
+
+
+@Composable
+private fun MessengerSettingsScreen(onPrivacy: () -> Unit, onTerms: () -> Unit, onAbout: () -> Unit) {
+    Column(Modifier.fillMaxSize().background(Background).padding(horizontal = 18.dp, vertical = 18.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Text("Your Atomos experience", color = Color(0xFF9299AC), style = MaterialTheme.typography.bodyMedium)
+        MessengerSettingsRow("Privacy", "Understand how account and message data is handled", "◈", onPrivacy)
+        MessengerSettingsRow("Terms of Service", "Rules and conditions for using Atomos", "§", onTerms)
+        MessengerSettingsRow("About", "Version, product information and current status", "ⓘ", onAbout)
+    }
+}
+
+@Composable
+private fun MessengerSettingsRow(title: String, description: String, glyph: String, onClick: () -> Unit) {
+    Card(onClick = onClick, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = SurfaceDark)) {
+        Row(Modifier.fillMaxWidth().padding(17.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Box(Modifier.size(44.dp).background(Color(0xFF292442), CircleShape), contentAlignment = Alignment.Center) {
+                Text(glyph, color = Violet, fontSize = 21.sp, fontWeight = FontWeight.SemiBold)
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(title, color = Color.White, fontWeight = FontWeight.SemiBold)
+                Text(description, color = Color(0xFF9299AC), style = MaterialTheme.typography.bodySmall, lineHeight = 17.sp)
+            }
+            Text("›", color = Violet, fontSize = 25.sp)
+        }
+    }
+}
+
+@Composable
+private fun MessengerPolicyScreen(title: String, subtitle: String, paragraphs: List<String>) {
+    Column(Modifier.fillMaxSize().background(Background).verticalScroll(rememberScrollState())
+        .padding(horizontal = 20.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(15.dp)) {
+        Text(subtitle, color = Violet, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+        paragraphs.forEachIndexed { index, paragraph ->
+            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = SurfaceDark)) {
+                Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("${index + 1}", color = Violet, fontWeight = FontWeight.Bold)
+                    Text(paragraph, color = Color(0xFFE2E4EC), style = MaterialTheme.typography.bodyMedium, lineHeight = 21.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MessengerAboutScreen() {
+    Column(Modifier.fillMaxSize().background(Background).padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Spacer(Modifier.height(16.dp))
+        Box(Modifier.size(82.dp).background(Color(0xFF292442), RoundedCornerShape(25.dp)), contentAlignment = Alignment.Center) {
+            Text("A", color = Violet, fontSize = 43.sp, fontWeight = FontWeight.Black)
+        }
+        Text("Atomos", color = Color.White, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Text("A focused space for conversations.", color = Color(0xFF9299AC), style = MaterialTheme.typography.bodyMedium)
+        Card(colors = CardDefaults.cardColors(containerColor = SurfaceDark), shape = RoundedCornerShape(20.dp)) {
+            Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                Text("VERSION", color = Violet, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                Text("1.2.0", color = Color.White, style = MaterialTheme.typography.titleMedium)
+                Text("Messenger-first Android app", color = Color(0xFF9299AC), style = MaterialTheme.typography.bodySmall)
+                Text("Built around private conversations, contacts, and your account.", color = Color(0xFF9299AC),
+                    style = MaterialTheme.typography.bodySmall, lineHeight = 19.sp)
+            }
+        }
+    }
 }
