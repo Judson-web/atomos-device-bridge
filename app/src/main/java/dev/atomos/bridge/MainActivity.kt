@@ -383,18 +383,9 @@ private fun AtomosApp(
             AuthGateScreen(error = authError, launching = authLaunching, onSignIn = beginSignIn)
         } else Scaffold(
             containerColor = Background,
-            topBar = {
-                if (page !in setOf("Files", "Chats", "People", "Media", "Conversation")) CenterAlignedTopAppBar(
-                    title = { Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(if (page == "Chats") "MESSAGES" else "ATOMOS", fontWeight = FontWeight.Black, letterSpacing = 3.sp, fontSize = 16.sp)
-                        Text(if (page == "Chats") "SECURE MESSAGING SETUP" else if (network.connected) "${network.transport} · ↓ ${formatRate(network.downloadBps)} · ↑ ${formatRate(network.uploadBps)}" else "No internet connection", style = MaterialTheme.typography.labelSmall, color = if (page == "Chats" || network.connected) Violet else MaterialTheme.colorScheme.error)
-                    } },
-                    actions = { Text(if (network.validated) "●" else "○", color = if (network.validated) Violet else MaterialTheme.colorScheme.error, modifier = Modifier.padding(end = 18.dp)) },
-                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Background, titleContentColor = MaterialTheme.colorScheme.onBackground)
-                )
-            },
+            topBar = {},
             bottomBar = {
-                if (page != "Files" && page != "Conversation") NavigationBar(containerColor = SurfaceDark) {
+                if (page != "Conversation") NavigationBar(containerColor = SurfaceDark) {
                     listOf("Chats", "People", "Media", "Profile").forEach { item ->
                         NavigationBarItem(
                             selected = page == item,
@@ -427,18 +418,7 @@ private fun AtomosApp(
                     )
                 }
                 Box(Modifier.fillMaxSize().then(if (page == "Media") Modifier else Modifier.size(0.dp))) {
-                    SharedMediaScreen(onBrowseLocalFiles = { page = "Files" })
-                }
-                Box(Modifier.fillMaxSize().then(if (page == "Tools" || page == "Home") Modifier else Modifier.size(0.dp))) {
-                    HomePage(
-                        network, status,
-                        onNetwork = { page = "Network" },
-                        onFiles = { page = "Files" },
-                        onInstaller = { page = "Installer" },
-                        onSpeed = { page = "Network" },
-                        onStorage = { page = "Storage" },
-                        onChats = { page = "Chats" }
-                    )
+                    SharedMediaScreen()
                 }
                 Box(Modifier.fillMaxSize().then(if (page == "Profile") Modifier else Modifier.size(0.dp))) {
                     ProfileScreen(user!!, network.ipAddress, status, signOut)
@@ -458,46 +438,7 @@ private fun AtomosApp(
                     }
                 }
 
-                if (page == "Files") {
-                    FileManagerScreen(
-                        onNavigate = { page = it },
-                        onInstallPackage = { file ->
-                            activityScope.launch {
-                                busy = true
-                                try {
-                                    val prepared = withContext(Dispatchers.IO) {
-                                        val target = copyUriToCache(context, file.uri, file.name ?: "package.apk", "file")
-                                        ArchiveInstaller.prepare(context, target)
-                                    }
-                                    ArchiveInstaller.install(context, prepared)
-                                    status = "Installer session started for ${prepared.label}"
-                                } catch (e: Exception) { status = e.message ?: "Install failed." }
-                                finally { busy = false }
-                            }
-                        }
-                    )
-                } else if (page in setOf("Network", "Storage", "Installer", "Settings")) {
-                    Column(Modifier.fillMaxSize().padding(horizontal = 18.dp)) {
-                        when (page) {
-                            "Network" -> NetworkPage(network, speedResult, speedBusy, speedProgress) {
-                                if (!speedBusy) activityScope.launch {
-                                    speedBusy = true
-                                    speedProgress = 0f
-                                    try { speedResult = withContext(Dispatchers.IO) { runSpeedTest { speedProgress = it } } }
-                                    catch (e: Exception) { speedResult = "Test failed: ${e.message}" }
-                                    finally { speedBusy = false; speedProgress = 1f }
-                                }
-                            }
-                            "Storage" -> StorageInsightsScreen()
-                            "Installer" -> InstallerPage(status, busy, { filePicker.launch(arrayOf("*/*")) }, {
-                                status = "Supported: APK, APKM, APKS, APKX and XAPK. Split archives are installed as one package session."
-                            })
-                            "Settings" -> SettingsPage(status, network.ipAddress)
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        Text(status, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 8.dp))
-                    }
-                }
+
             }
         }
     }
