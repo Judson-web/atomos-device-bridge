@@ -24,6 +24,10 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -313,8 +317,9 @@ private fun ConversationRow(
                 }
             }
             Box {
-                Text("⋮", color = InboxMuted, fontSize = 22.sp,
-                    modifier = Modifier.clickable { menuExpanded = true }.padding(horizontal = 5.dp, vertical = 8.dp))
+                IconButton(onClick = { menuExpanded = true }) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "Conversation actions", tint = InboxMuted)
+                }
                 DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                     DropdownMenuItem(text = { Text("Open conversation") }, onClick = { menuExpanded = false; onClick() })
                     DropdownMenuItem(text = { Text("Copy contact name") }, onClick = { menuExpanded = false; onCopyName() })
