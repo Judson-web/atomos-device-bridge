@@ -9,8 +9,8 @@ android {
   targetSdk = 37
   buildConfigField("String", "SUPABASE_URL", "\"https://swvlujplpqfppnhdhxyf.supabase.co\"")
   buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"sb_publishable_mNuobCwjLhFaqdQ03faipw_WYmrt0Ni\"")
-  versionCode = 25
-  versionName = "1.2.0-beta.1"
+  versionCode = 26
+  versionName = "1.2.0"
  }
  signingConfigs { create("release") {
   storeFile = file("release-key.jks")
