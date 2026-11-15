@@ -110,23 +110,11 @@ fun MessagingInboxScreen(
             .padding(horizontal = 18.dp),
         verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 18.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text("atomos", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-1.2).sp)
-                Text("MESSAGES", color = InboxAccent, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.2.sp)
-            }
-            Surface(
-                modifier = Modifier.size(46.dp).clickable(onClick = onPeople),
-                shape = RoundedCornerShape(16.dp),
-                color = Color(0xFF292442),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF49416F))
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text("+", color = InboxAccent, fontSize = 29.sp, fontWeight = FontWeight.Light)
-                }
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Your conversations", color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            Surface(modifier = Modifier.size(42.dp).clickable(onClick = onPeople), shape = CircleShape,
+                color = Color(0xFF292442), border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF49416F))) {
+                Box(contentAlignment = Alignment.Center) { Text("+", color = InboxAccent, fontSize = 27.sp, fontWeight = FontWeight.Light) }
             }
         }
 
