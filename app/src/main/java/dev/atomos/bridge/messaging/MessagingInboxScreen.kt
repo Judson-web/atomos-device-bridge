@@ -19,6 +19,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
@@ -26,6 +28,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -67,6 +71,7 @@ fun MessagingInboxScreen(
     var selectedFilter by remember { mutableStateOf("All") }
     var refreshNonce by remember { mutableIntStateOf(0) }
     val listState = rememberLazyListState()
+    val clipboard = LocalClipboardManager.current
 
     LaunchedEffect(api, userId, refreshNonce) {
         loading = true
@@ -226,7 +231,26 @@ fun MessagingInboxScreen(
                 items(visibleConversations, key = { it.id }) { conversation ->
                     ConversationRow(
                         conversation = conversation,
-                        onClick = { onOpenConversation(conversation.id) }
+                        onClick = { onOpenConversation(conversation.id) },
+                        onCopyName = { clipboard.setText(AnnotatedString(conversation.participantNames.ifBlank { "Conversation" })) }
+                    )
+                }
+            }
+            Box {
+                Text(
+                    "⋮",
+                    color = InboxMuted,
+                    fontSize = 22.sp,
+                    modifier = Modifier.clickable { menuExpanded = true }.padding(horizontal = 5.dp, vertical = 8.dp)
+                )
+                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Open conversation") },
+                        onClick = { menuExpanded = false; onClick() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Copy contact name") },
+                        onClick = { menuExpanded = false; onCopyName() }
                     )
                 }
             }
@@ -237,8 +261,10 @@ fun MessagingInboxScreen(
 @Composable
 private fun ConversationRow(
     conversation: MessengerConversationSummary,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onCopyName: () -> Unit
 ) {
+    var menuExpanded by remember(conversation.id) { mutableStateOf(false) }
     val title = conversation.participantNames.ifBlank {
         if (conversation.kind == "group") "Group conversation" else "Direct conversation"
     }
