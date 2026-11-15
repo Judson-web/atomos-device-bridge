@@ -166,7 +166,7 @@ fun ConversationSetupScreen(
                 try {
                     consume(rows)
                     status = deliveryWarning ?: if (NativeMlsBridge.hasGroup(conversationId)) {
-                        "MLS encryption active · experimental"
+                        "MLS session active"
                     } else {
                         "Waiting for secure group setup"
                     }
@@ -354,7 +354,7 @@ fun ConversationSetupScreen(
                                     )
                                 )
                                 draft = ""
-                                status = "MLS encryption active · experimental"
+                                status = "MLS session active"
                             } catch (e: Exception) {
                                 status = e.message ?: "Message could not be sent."
                             } finally {
