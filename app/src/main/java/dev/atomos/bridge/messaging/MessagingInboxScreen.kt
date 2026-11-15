@@ -59,7 +59,6 @@ fun MessagingInboxScreen(
     onPeople: () -> Unit,
     onOpenConversation: (String) -> Unit
 ) {
-    val nativeProtocolVersion = remember { NativeMlsBridge.protocolVersionOrNull() }
     var conversations by remember { mutableStateOf<List<MessengerConversationSummary>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var loadError by remember { mutableStateOf<String?>(null) }
@@ -215,6 +214,9 @@ fun MessagingInboxScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(5.dp)
                     ) {
+                        if (!storageStatus.contains("ready", ignoreCase = true)) {
+                            Text(storageStatus, color = Color(0xFFE0B56B), fontSize = 10.sp, textAlign = TextAlign.Center)
+                        }
                         Text("ATOMOS", color = InboxAccent, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                         Text("Your conversations stay in sync here.", color = InboxMuted, fontSize = 10.sp)
                     }
