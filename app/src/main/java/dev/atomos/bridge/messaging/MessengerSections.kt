@@ -257,41 +257,31 @@ fun PeopleDiscoveryScreen(
 }
 
 @Composable
-fun SharedMediaScreen(onBrowseLocalFiles: () -> Unit) {
+fun SharedMediaScreen() {
     Column(
-        modifier = Modifier.fillMaxSize().background(MessengerPageBackground).padding(20.dp),
+        modifier = Modifier.fillMaxSize().background(MessengerPageBackground).padding(horizontal = 20.dp, vertical = 22.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text("Media & files", style = MaterialTheme.typography.headlineMedium, color = Color.White, fontWeight = FontWeight.Bold)
-            Text("Shared attachments and your local media tools.", color = MessengerPageMuted, style = MaterialTheme.typography.bodyMedium)
+            Text("Media", style = MaterialTheme.typography.headlineMedium, color = Color.White, fontWeight = FontWeight.Bold)
+            Text("Photos, videos and files shared in your conversations.", color = MessengerPageMuted, style = MaterialTheme.typography.bodyMedium)
         }
         Card(
             modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp),
             colors = CardDefaults.cardColors(containerColor = MessengerPageSurface)
         ) {
             Column(
-                modifier = Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth().padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Box(Modifier.size(66.dp).background(Color(0xFF25213F), CircleShape), contentAlignment = Alignment.Center) {
                     Text("▧", color = MessengerPageAccent, fontSize = 30.sp)
                 }
-                Text("No shared media yet", color = Color.White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text("Your shared media will live here", color = Color.White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(
-                    "Conversation media will appear here after encrypted attachment transfer is enabled. Your existing viewers and file tools remain available below.",
+                    "Photos, videos and documents from your chats will appear here. Encrypted attachment transfer is not available yet, so nothing is shown until it can be handled securely.",
                     color = MessengerPageMuted, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center, lineHeight = 20.sp
                 )
-            }
-        }
-        Text("LOCAL TOOLS", color = MessengerPageAccent, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-        Card(
-            modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.cardColors(containerColor = MessengerPageSurface)
-        ) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("File manager · Image viewer · Video & audio player · Text editor · ZIP tools · Package inspection", color = Color.White, style = MaterialTheme.typography.bodyMedium, lineHeight = 22.sp)
-                Button(onClick = onBrowseLocalFiles, modifier = Modifier.fillMaxWidth()) { Text("Browse local files") }
             }
         }
     }
