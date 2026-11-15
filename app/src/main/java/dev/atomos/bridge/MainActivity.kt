@@ -376,72 +376,104 @@ private fun AtomosApp(
             },
             bottomBar = {
                 if (page != "Files" && page != "Conversation") NavigationBar(containerColor = SurfaceDark) {
-                    listOf("Chats", "People", "Media", "Tools", "Files", "Profile").forEach { item ->
+                    listOf("Chats", "People", "Media", "Tools", "Profile").forEach { item ->
                         NavigationBarItem(
-                            selected = page == item,
+                            selected = page == item || (item == "Tools" && page in setOf("Network", "Storage", "Installer", "Settings", "Home")),
                             onClick = { page = item },
-                            icon = { Text(when(item) { "Chats" -> "✉"; "People" -> "◎"; "Media" -> "▧"; "Tools" -> "⌘"; "Files" -> "▤"; else -> "⚙" }) },
+                            icon = { Text(when(item) { "Chats" -> "●"; "People" -> "◎"; "Media" -> "▧"; "Tools" -> "⌘"; else -> "◉" }) },
                             label = { Text(item) }
                         )
                     }
                 }
             }
         ) { padding ->
-            if (page == "Files") {
-                FileManagerScreen(
-                    onNavigate = { page = it },
-                    onInstallPackage = { file ->
-                        activityScope.launch {
-                            busy = true
-                            try {
-                                val prepared = withContext(Dispatchers.IO) {
-                                    val target = copyUriToCache(context, file.uri, file.name ?: "package.apk", "file")
-                                    ArchiveInstaller.prepare(context, target)
-                                }
-                                ArchiveInstaller.install(context, prepared)
-                                status = "Installer session started for ${prepared.label}"
-                            } catch (e: Exception) { status = e.message ?: "Install failed." }
-                            finally { busy = false }
-                        }
-                    }
-                )
-            } else Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = if (page == "Chats" || page == "Conversation") 0.dp else 18.dp)) {
-                when (page) {
-                    "Home" -> HomePage(network, status, onNetwork = { page = "Network" }, onFiles = { page = "Files" }, onInstaller = { page = "Installer" }, onSpeed = { page = "Network" }, onStorage = { page = "Storage" }, onChats = { page = "Chats" })
-                    "Chats" -> MessagingInboxScreen(
+            Box(Modifier.fillMaxSize().padding(padding)) {
+                // Keep the five primary destinations composed. This preserves scroll,
+                // search, filters and live subscriptions while the user changes tabs.
+                Box(Modifier.fillMaxSize().then(if (page == "Chats" || page == "Conversation") Modifier else Modifier.size(0.dp))) {
+                    MessagingInboxScreen(
                         api = messengerApi,
                         userId = user!!.id,
                         storageStatus = mlsStorageStatus,
                         onPeople = { page = "People" },
                         onOpenConversation = { id -> activeConversationId = id; page = "Conversation" }
                     )
-                    "Conversation" -> activeConversationId?.let { id ->
-                        ConversationSetupScreen(conversationId = id, api = messengerApi, userId = user!!.id, deviceId = activeDeviceId.orEmpty(), onBack = { page = "Chats" })
-                    }
-                    "People" -> PeopleDiscoveryScreen(
+                }
+                Box(Modifier.fillMaxSize().then(if (page == "People") Modifier else Modifier.size(0.dp))) {
+                    PeopleDiscoveryScreen(
                         api = messengerApi,
                         currentUserId = user!!.id,
                         currentDeviceId = activeDeviceId.orEmpty(),
                         onConversationCreated = { id -> activeConversationId = id; page = "Conversation" }
                     )
-                    "Media" -> SharedMediaScreen(onBrowseLocalFiles = { page = "Files" })
-                    "Profile" -> ProfileScreen(user!!, network.ipAddress, status, signOut)
-                    "Tools" -> HomePage(network, status, onNetwork = { page = "Network" }, onFiles = { page = "Files" }, onInstaller = { page = "Installer" }, onSpeed = { page = "Network" }, onStorage = { page = "Storage" }, onChats = { page = "Chats" })
-                    "Network" -> NetworkPage(network, speedResult, speedBusy, speedProgress) {
-                        if (!speedBusy) activityScope.launch {
-                            speedBusy = true; speedProgress = 0f
-                            try { speedResult = withContext(Dispatchers.IO) { runSpeedTest { speedProgress = it } } }
-                            catch (e: Exception) { speedResult = "Test failed: ${e.message}" }
-                            finally { speedBusy = false; speedProgress = 1f }
-                        }
-                    }
-                    "Storage" -> StorageInsightsScreen()
-                    "Installer" -> InstallerPage(status, busy, { filePicker.launch(arrayOf("*/*")) }, { status = "Supported: APK, APKM, APKS, APKX and XAPK. Split archives are installed as one package session." })
-                    "Settings" -> SettingsPage(status, network.ipAddress)
                 }
-                if (page !in setOf("Chats", "Conversation", "People", "Media")) {
-                    Spacer(Modifier.height(8.dp))
-                    Text(status, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 8.dp))
+                Box(Modifier.fillMaxSize().then(if (page == "Media") Modifier else Modifier.size(0.dp))) {
+                    SharedMediaScreen(onBrowseLocalFiles = { page = "Files" })
+                }
+                Box(Modifier.fillMaxSize().then(if (page == "Tools" || page == "Home") Modifier else Modifier.size(0.dp))) {
+                    HomePage(
+                        network, status,
+                        onNetwork = { page = "Network" },
+                        onFiles = { page = "Files" },
+                        onInstaller = { page = "Installer" },
+                        onSpeed = { page = "Network" },
+                        onStorage = { page = "Storage" },
+                        onChats = { page = "Chats" }
+                    )
+                }
+                Box(Modifier.fillMaxSize().then(if (page == "Profile") Modifier else Modifier.size(0.dp))) {
+                    ProfileScreen(user!!, network.ipAddress, status, signOut)
+                }
+
+                if (page == "Conversation") {
+                    activeConversationId?.let { id ->
+                        ConversationSetupScreen(
+                            conversationId = id,
+                            api = messengerApi,
+                            userId = user!!.id,
+                            deviceId = activeDeviceId.orEmpty(),
+                            onBack = { page = "Chats" }
+                        )
+                    }
+                } else if (page == "Files") {
+                    FileManagerScreen(
+                        onNavigate = { page = it },
+                        onInstallPackage = { file ->
+                            activityScope.launch {
+                                busy = true
+                                try {
+                                    val prepared = withContext(Dispatchers.IO) {
+                                        val target = copyUriToCache(context, file.uri, file.name ?: "package.apk", "file")
+                                        ArchiveInstaller.prepare(context, target)
+                                    }
+                                    ArchiveInstaller.install(context, prepared)
+                                    status = "Installer session started for ${prepared.label}"
+                                } catch (e: Exception) { status = e.message ?: "Install failed." }
+                                finally { busy = false }
+                            }
+                        }
+                    )
+                } else if (page in setOf("Network", "Storage", "Installer", "Settings")) {
+                    Column(Modifier.fillMaxSize().padding(horizontal = 18.dp)) {
+                        when (page) {
+                            "Network" -> NetworkPage(network, speedResult, speedBusy, speedProgress) {
+                                if (!speedBusy) activityScope.launch {
+                                    speedBusy = true
+                                    speedProgress = 0f
+                                    try { speedResult = withContext(Dispatchers.IO) { runSpeedTest { speedProgress = it } } }
+                                    catch (e: Exception) { speedResult = "Test failed: ${e.message}" }
+                                    finally { speedBusy = false; speedProgress = 1f }
+                                }
+                            }
+                            "Storage" -> StorageInsightsScreen()
+                            "Installer" -> InstallerPage(status, busy, { filePicker.launch(arrayOf("*/*")) }, {
+                                status = "Supported: APK, APKM, APKS, APKX and XAPK. Split archives are installed as one package session."
+                            })
+                            "Settings" -> SettingsPage(status, network.ipAddress)
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Text(status, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 8.dp))
+                    }
                 }
             }
         }
