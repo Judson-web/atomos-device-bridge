@@ -127,6 +127,7 @@ private fun AtomosApp(
     // Activity-owned work survives temporary Compose screen removal during system pickers and dialogs.
     val monitor = remember { NetworkMonitor(context) }
     var page by remember { mutableStateOf("Chats") }
+    var overflowExpanded by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("Ready") }
     var network by remember { mutableStateOf(NetworkSnapshot(false, "Offline", false, 0, 0, "")) }
@@ -404,66 +405,92 @@ private fun AtomosApp(
             AuthGateScreen(error = authError, launching = authLaunching, onSignIn = beginSignIn)
         } else Scaffold(
             containerColor = Background,
-            topBar = {},
+            topBar = {
+                if (page != "Conversation") {
+                    Row(Modifier.fillMaxWidth().background(Background).padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        if (page in listOf("Privacy", "Terms", "About")) {
+                            Text("‹", color = Violet, fontSize = 30.sp, modifier = Modifier.clickable { page = "Settings" }.padding(end = 14.dp))
+                        }
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(when (page) {
+                                "Chats" -> "Atomos"; "People" -> "Contacts"; "Profile" -> "Profile"
+                                "Settings" -> "Settings"; "Privacy" -> "Privacy"; "Terms" -> "Terms of Service"
+                                "About" -> "About Atomos"; else -> "Atomos"
+                            }, color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.5).sp)
+                            Text(when (page) {
+                                "Chats" -> "YOUR MESSAGES"; "People" -> "PEOPLE YOU KNOW"; "Profile" -> "YOUR ACCOUNT"
+                                else -> "ATOMOS MESSENGER"
+                            }, color = Violet, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.7.sp)
+                        }
+                        Box {
+                            IconButton(onClick = { overflowExpanded = true }) { Text("⋮", color = Color.White, fontSize = 27.sp) }
+                            DropdownMenu(expanded = overflowExpanded, onDismissRequest = { overflowExpanded = false }) {
+                                DropdownMenuItem(text = { Text("Settings") }, onClick = { overflowExpanded = false; page = "Settings" })
+                            }
+                        }
+                    }
+                }
+            },
             bottomBar = {
-                if (page != "Conversation") NavigationBar(containerColor = SurfaceDark) {
-                    listOf("Chats", "People", "Media", "Profile").forEach { item ->
-                        NavigationBarItem(
-                            selected = page == item,
-                            onClick = { page = item },
-                            icon = { Text(when(item) { "Chats" -> "●"; "People" -> "◎"; "Media" -> "▧"; else -> "◉" }) },
-                            label = { Text(item) }
-                        )
+                if (page in listOf("Chats", "People", "Profile")) {
+                    NavigationBar(containerColor = SurfaceDark) {
+                        listOf("Chats", "People", "Profile").forEach { item ->
+                            NavigationBarItem(
+                                selected = page == item, onClick = { page = item },
+                                icon = { Text(when (item) { "Chats" -> "▤"; "People" -> "◎"; else -> "◉" }, fontSize = 19.sp) },
+                                label = { Text(if (item == "People") "Contacts" else item) }
+                            )
+                        }
                     }
                 }
             }
         ) { padding ->
             Box(Modifier.fillMaxSize().padding(padding)) {
-                // Keep the four messenger destinations composed. This preserves scroll,
-                // search, filters and live subscriptions while the user changes tabs.
+                // Keep primary destinations composed while hidden to preserve scroll and live subscriptions.
                 Box(Modifier.fillMaxSize().then(if (page == "Chats" || page == "Conversation") Modifier else Modifier.size(0.dp))) {
-                    MessagingInboxScreen(
-                        api = messengerApi,
-                        userId = user!!.id,
-                        storageStatus = mlsStorageStatus,
+                    MessagingInboxScreen(api = messengerApi, userId = user!!.id, storageStatus = mlsStorageStatus,
                         onPeople = { page = "People" },
-                        onOpenConversation = { id -> activeConversationId = id; page = "Conversation" }
-                    )
+                        onOpenConversation = { id -> activeConversationId = id; page = "Conversation" })
                 }
                 Box(Modifier.fillMaxSize().then(if (page == "People") Modifier else Modifier.size(0.dp))) {
-                    PeopleDiscoveryScreen(
-                        api = messengerApi,
-                        currentUserId = user!!.id,
-                        currentDeviceId = activeDeviceId.orEmpty(),
-                        onConversationCreated = { id -> activeConversationId = id; page = "Conversation" }
-                    )
-                }
-                Box(Modifier.fillMaxSize().then(if (page == "Media") Modifier else Modifier.size(0.dp))) {
-                    SharedMediaScreen()
+                    PeopleDiscoveryScreen(api = messengerApi, currentUserId = user!!.id, currentDeviceId = activeDeviceId.orEmpty(),
+                        onConversationCreated = { id -> activeConversationId = id; page = "Conversation" })
                 }
                 Box(Modifier.fillMaxSize().then(if (page == "Profile") Modifier else Modifier.size(0.dp))) {
                     ProfileScreen(user!!, network.ipAddress, status, signOut)
                 }
-
-                // Keep the active conversation composed while moving between
-                // primary destinations so its message history and live stream survive.
+                Box(Modifier.fillMaxSize().then(if (page == "Settings") Modifier else Modifier.size(0.dp))) {
+                    MessengerSettingsScreen(
+                        onPrivacy = { page = "Privacy" }, onTerms = { page = "Terms" }, onAbout = { page = "About" })
+                }
+                Box(Modifier.fillMaxSize().then(if (page == "Privacy") Modifier else Modifier.size(0.dp))) {
+                    MessengerPolicyScreen("Privacy", "How Atomos handles your information", listOf(
+                        "Atomos uses your account identity to provide sign-in, profile discovery, contact requests, and conversations.",
+                        "Conversation content is encrypted on your device with the MLS messaging implementation before ciphertext is sent to the service. This is not a claim of certification or independent security audit.",
+                        "Account and messaging metadata may be processed by the configured Supabase service to operate sign-in, contacts, conversation membership, delivery, and synchronization.",
+                        "Shared media transfer, complete multi-device recovery, and some privacy controls are not yet available. Avoid sending information that requires those unfinished protections.",
+                        "Signing out removes the locally stored session from this device. It does not automatically delete server-side account data."
+                    ))
+                }
+                Box(Modifier.fillMaxSize().then(if (page == "Terms") Modifier else Modifier.size(0.dp))) {
+                    MessengerPolicyScreen("Terms of Service", "Using Atomos Messenger", listOf(
+                        "Use Atomos lawfully and respectfully. You are responsible for the content you send and for protecting access to your device and account.",
+                        "Do not use the service to threaten, harass, impersonate, distribute unlawful material, or interfere with other people's use of the service.",
+                        "Atomos is under active development. Features may change, be unavailable, or contain defects. Keep independent copies of information you cannot afford to lose.",
+                        "Encryption features are still evolving. The app is not represented as independently audited, certified, or suitable for emergency or high-assurance communications.",
+                        "These in-app terms are a product notice, not a substitute for a final published legal policy. Final legal review and a support contact are required before broad commercial distribution."
+                    ))
+                }
+                Box(Modifier.fillMaxSize().then(if (page == "About") Modifier else Modifier.size(0.dp))) { MessengerAboutScreen() }
                 Box(Modifier.fillMaxSize().then(if (page == "Conversation") Modifier else Modifier.size(0.dp))) {
                     activeConversationId?.let { id ->
-                        ConversationSetupScreen(
-                            conversationId = id,
-                            api = messengerApi,
-                            userId = user!!.id,
-                            deviceId = activeDeviceId.orEmpty(),
-                            onBack = { page = "Chats" }
-                        )
+                        ConversationSetupScreen(conversationId = id, api = messengerApi, userId = user!!.id,
+                            deviceId = activeDeviceId.orEmpty(), onBack = { page = "Chats" })
                     }
                 }
-
-
             }
         }
     }
-}
 
 @Composable private fun HomePage(n: NetworkSnapshot, status: String, onNetwork: () -> Unit, onFiles: () -> Unit, onInstaller: () -> Unit, onSpeed: () -> Unit, onStorage: () -> Unit, onChats: () -> Unit) {
     LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 18.dp)) {
@@ -608,4 +635,73 @@ private fun runSpeedTest(progress: (Float) -> Unit): String {
     val ping = pings.average()
     val jitter = pings.maxOrNull()!! - pings.minOrNull()!!
     return "Download: ${"%.1f".format(downMbps)} Mbps\nUpload: ${"%.1f".format(upMbps)} Mbps\nLatency: ${"%.0f".format(ping)} ms · Jitter: ${"%.1f".format(jitter)} ms"
+}
+
+
+@Composable
+private fun MessengerSettingsScreen(onPrivacy: () -> Unit, onTerms: () -> Unit, onAbout: () -> Unit) {
+    Column(Modifier.fillMaxSize().background(Background).padding(horizontal = 18.dp, vertical = 18.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Text("Your Atomos experience", color = Color(0xFF9299AC), style = MaterialTheme.typography.bodyMedium)
+        MessengerSettingsRow("Privacy", "Understand how account and message data is handled", "◈", onPrivacy)
+        MessengerSettingsRow("Terms of Service", "Rules and conditions for using Atomos", "§", onTerms)
+        MessengerSettingsRow("About", "Version, product information and current status", "ⓘ", onAbout)
+    }
+}
+
+@Composable
+private fun MessengerSettingsRow(title: String, description: String, glyph: String, onClick: () -> Unit) {
+    Card(onClick = onClick, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = SurfaceDark)) {
+        Row(Modifier.fillMaxWidth().padding(17.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Box(Modifier.size(44.dp).background(Color(0xFF292442), CircleShape), contentAlignment = Alignment.Center) {
+                Text(glyph, color = Violet, fontSize = 21.sp, fontWeight = FontWeight.SemiBold)
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(title, color = Color.White, fontWeight = FontWeight.SemiBold)
+                Text(description, color = Color(0xFF9299AC), style = MaterialTheme.typography.bodySmall, lineHeight = 17.sp)
+            }
+            Text("›", color = Violet, fontSize = 25.sp)
+        }
+    }
+}
+
+@Composable
+private fun MessengerPolicyScreen(title: String, subtitle: String, paragraphs: List<String>) {
+    Column(Modifier.fillMaxSize().background(Background).verticalScroll(rememberScrollState())
+        .padding(horizontal = 20.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(15.dp)) {
+        Text(subtitle, color = Violet, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+        paragraphs.forEachIndexed { index, paragraph ->
+            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = SurfaceDark)) {
+                Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("${index + 1}", color = Violet, fontWeight = FontWeight.Bold)
+                    Text(paragraph, color = Color(0xFFE2E4EC), style = MaterialTheme.typography.bodyMedium, lineHeight = 21.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MessengerAboutScreen() {
+    Column(Modifier.fillMaxSize().background(Background).padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Spacer(Modifier.height(16.dp))
+        Box(Modifier.size(82.dp).background(Color(0xFF292442), RoundedCornerShape(25.dp)), contentAlignment = Alignment.Center) {
+            Text("A", color = Violet, fontSize = 43.sp, fontWeight = FontWeight.Black)
+        }
+        Text("Atomos", color = Color.White, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Text("A focused space for conversations.", color = Color(0xFF9299AC), style = MaterialTheme.typography.bodyMedium)
+        Card(colors = CardDefaults.cardColors(containerColor = SurfaceDark), shape = RoundedCornerShape(20.dp)) {
+            Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                Text("VERSION", color = Violet, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                Text("1.2.0", color = Color.White, style = MaterialTheme.typography.titleMedium)
+                Text("Messenger-first Android app", color = Color(0xFF9299AC), style = MaterialTheme.typography.bodySmall)
+                Text("Built around private conversations, contacts, and your account.", color = Color(0xFF9299AC),
+                    style = MaterialTheme.typography.bodySmall, lineHeight = 19.sp)
+            }
+        }
+    }
 }
