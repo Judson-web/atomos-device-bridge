@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -38,11 +39,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.time.LocalDate
 import java.util.Locale
 
 private val InboxBackground = Color(0xFF090B12)
@@ -65,13 +68,12 @@ fun MessagingInboxScreen(
     var search by remember { mutableStateOf("") }
     var selectedFilter by remember { mutableStateOf("All") }
     var refreshNonce by remember { mutableIntStateOf(0) }
+    val listState = rememberLazyListState()
 
     LaunchedEffect(api, userId, refreshNonce) {
         loading = true
         loadError = null
         try {
-            // Load immediately, then keep the realtime subscription alive while this
-            // destination remains composed behind the other primary tabs.
             conversations = api.conversationSummaries()
             loading = false
             api.observeConversationRows().collect {
@@ -90,42 +92,35 @@ fun MessagingInboxScreen(
         val matchesFilter = when (selectedFilter) {
             "Unread" -> conversation.unreadCount > 0
             "Groups" -> conversation.kind == "group"
+            "Direct" -> conversation.kind != "group"
             else -> true
         }
         matchesSearch && matchesFilter
     }
 
     Column(
-        modifier = Modifier.fillMaxSize().background(InboxBackground),
+        modifier = Modifier.fillMaxSize().background(InboxBackground)
+            .padding(horizontal = 18.dp),
         verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 14.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 18.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text("Messages", color = Color.White, fontSize = 29.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.8).sp)
-                Text("YOUR CONVERSATIONS", color = InboxMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("atomos", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-1.2).sp)
+                Text("MESSAGES", color = InboxAccent, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.2.sp)
             }
             Surface(
-                modifier = Modifier.size(42.dp).clickable(onClick = onPeople),
-                shape = CircleShape,
-                color = Color(0xFF292442)
+                modifier = Modifier.size(46.dp).clickable(onClick = onPeople),
+                shape = RoundedCornerShape(16.dp),
+                color = Color(0xFF292442),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF49416F))
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Text("+", color = InboxAccent, fontSize = 27.sp, fontWeight = FontWeight.Light)
+                    Text("+", color = InboxAccent, fontSize = 29.sp, fontWeight = FontWeight.Light)
                 }
             }
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            StatusBubble("+", "New chat", true, Modifier.weight(1f), onPeople)
-            StatusBubble("◎", "Contacts", false, Modifier.weight(1f), onPeople)
-            StatusBubble("⌕", "Requests", false, Modifier.weight(1f), onPeople)
         }
 
         OutlinedTextField(
@@ -133,30 +128,47 @@ fun MessagingInboxScreen(
             onValueChange = { search = it },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
-            shape = RoundedCornerShape(16.dp),
-            placeholder = { Text("Search conversations", color = InboxMuted) },
-            leadingIcon = { Text("⌕", color = InboxAccent, fontSize = 22.sp) }
+            shape = RoundedCornerShape(18.dp),
+            placeholder = { Text("Search people and conversations", color = InboxMuted) },
+            leadingIcon = { Text("⌕", color = InboxAccent, fontSize = 23.sp) }
         )
 
+        if (!storageStatus.contains("ready", ignoreCase = true)) {
+            Surface(
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                color = Color(0xFF2A241C),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Text(
+                    storageStatus,
+                    modifier = Modifier.padding(horizontal = 13.dp, vertical = 10.dp),
+                    color = Color(0xFFE8C58B),
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp
+                )
+            }
+        }
+
         Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            listOf("All", "Unread", "Groups").forEach { filter ->
+            Text("Conversations", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            Text("${visibleConversations.size}", color = InboxMuted, fontSize = 12.sp)
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            listOf("All", "Unread", "Direct", "Groups").forEach { filter ->
                 FilterChip(
                     selected = selectedFilter == filter,
                     onClick = { selectedFilter = filter },
-                    label = { Text(filter) },
-                    shape = RoundedCornerShape(12.dp)
+                    label = { Text(filter, fontSize = 12.sp) },
+                    shape = RoundedCornerShape(14.dp)
                 )
             }
-            Spacer(Modifier.weight(1f))
-            Text(
-                "${visibleConversations.size} chats",
-                modifier = Modifier.align(Alignment.CenterVertically),
-                color = InboxMuted,
-                fontSize = 11.sp
-            )
         }
 
         when {
@@ -189,37 +201,35 @@ fun MessagingInboxScreen(
                             .border(1.dp, Color(0xFF3C365E), CircleShape),
                         contentAlignment = Alignment.Center
                     ) { Text("✉", color = InboxAccent, fontSize = 31.sp) }
-                    Text(if (search.isBlank()) "No conversations yet" else "No matching conversations", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     Text(
-                        if (search.isBlank()) "Find someone on Atomos and start your first conversation." else "Try another name or clear your search.",
-                        color = InboxMuted,
-                        style = MaterialTheme.typography.bodyMedium
+                        if (search.isBlank()) "Your next conversation starts here" else "No matching conversations",
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center
                     )
-                    if (search.isBlank()) Button(onClick = onPeople) { Text("Start a conversation") }
+                    Text(
+                        if (search.isBlank()) "Find people on Atomos and start chatting. Your conversations will appear here."
+                        else "Try another name or switch the conversation filter.",
+                        color = InboxMuted,
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 20.sp
+                    )
+                    if (search.isBlank()) Button(onClick = onPeople) { Text("New message") }
                 }
             }
             else -> LazyColumn(
+                state = listState,
                 modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
+                verticalArrangement = Arrangement.spacedBy(5.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 18.dp)
             ) {
                 items(visibleConversations, key = { it.id }) { conversation ->
                     ConversationRow(
                         conversation = conversation,
                         onClick = { onOpenConversation(conversation.id) }
                     )
-                }
-                item {
-                    Column(
-                        Modifier.fillMaxWidth().padding(top = 22.dp, bottom = 16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(5.dp)
-                    ) {
-                        if (!storageStatus.contains("ready", ignoreCase = true)) {
-                            Text(storageStatus, color = Color(0xFFE0B56B), fontSize = 10.sp, textAlign = TextAlign.Center)
-                        }
-                        Text("ATOMOS", color = InboxAccent, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                        Text("Your conversations stay in sync here.", color = InboxMuted, fontSize = 10.sp)
-                    }
                 }
             }
         }
@@ -263,52 +273,65 @@ private fun ConversationRow(
     val initial = title.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "A"
     val timestamp = remember(conversation.updatedAt) {
         runCatching {
-            Instant.parse(conversation.updatedAt)
-                .atZone(ZoneId.systemDefault())
-                .format(DateTimeFormatter.ofPattern("HH:mm", Locale.getDefault()))
+            val dateTime = Instant.parse(conversation.updatedAt).atZone(ZoneId.systemDefault())
+            if (dateTime.toLocalDate() == LocalDate.now()) {
+                dateTime.format(DateTimeFormatter.ofPattern("HH:mm", Locale.getDefault()))
+            } else {
+                dateTime.format(DateTimeFormatter.ofPattern("MMM d", Locale.getDefault()))
+            }
         }.getOrDefault("")
     }
-    Row(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 11.dp, horizontal = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    val avatarColor = if (conversation.kind == "group") Color(0xFF292442) else Color(0xFF202A3B)
+    Surface(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        color = InboxSurface,
+        shape = RoundedCornerShape(19.dp)
     ) {
-        Box(
-            Modifier.size(54.dp).background(
-                if (conversation.kind == "group") Color(0xFF292442) else Color(0xFF202A3B),
-                CircleShape
-            ),
-            contentAlignment = Alignment.Center
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 13.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(initial, color = if (conversation.kind == "group") InboxAccent else Color(0xFFB8D4FF), fontSize = 21.sp, fontWeight = FontWeight.SemiBold)
-            if (conversation.kind != "group") {
-                Box(Modifier.align(Alignment.BottomEnd).size(13.dp).background(InboxBackground, CircleShape).padding(2.dp).background(Color(0xFF596477), CircleShape))
+            Box(
+                Modifier.size(52.dp).background(avatarColor, CircleShape)
+                    .border(1.dp, if (conversation.kind == "group") Color(0xFF4A416F) else Color(0xFF34435B), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(initial, color = if (conversation.kind == "group") InboxAccent else Color(0xFFB8D4FF), fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
             }
-        }
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(title, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                Text(timestamp, color = if (conversation.unreadCount > 0) InboxAccent else InboxMuted, fontSize = 10.sp)
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    if (conversation.kind == "group") "Group conversation" else "Private conversation",
-                    color = InboxMuted,
-                    fontSize = 12.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-                if (conversation.unreadCount > 0) {
-                    Box(
-                        Modifier.padding(start = 8.dp).background(InboxAccent, CircleShape).padding(horizontal = 7.dp, vertical = 3.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(conversation.unreadCount.coerceAtMost(99).toString(), color = Color(0xFF151321), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        title,
+                        color = Color.White,
+                        fontWeight = if (conversation.unreadCount > 0) FontWeight.Bold else FontWeight.SemiBold,
+                        fontSize = 14.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(timestamp, color = if (conversation.unreadCount > 0) InboxAccent else InboxMuted, fontSize = 10.sp)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        if (conversation.kind == "group") "Group conversation" else "Private conversation",
+                        color = InboxMuted,
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (conversation.unreadCount > 0) {
+                        Box(
+                            Modifier.padding(start = 8.dp).background(InboxAccent, CircleShape)
+                                .padding(horizontal = 7.dp, vertical = 3.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(conversation.unreadCount.coerceAtMost(99).toString(), color = Color(0xFF151321), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
         }
     }
-    Box(Modifier.fillMaxWidth().padding(start = 66.dp).height(0.5.dp).background(Color(0xFF222A39)))
 }
