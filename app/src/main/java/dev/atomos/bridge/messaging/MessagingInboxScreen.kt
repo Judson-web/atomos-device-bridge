@@ -71,6 +71,10 @@ fun MessagingInboxScreen(
         loading = true
         loadError = null
         try {
+            // Load immediately, then keep the realtime subscription alive while this
+            // destination remains composed behind the other primary tabs.
+            conversations = api.conversationSummaries()
+            loading = false
             api.observeConversationRows().collect {
                 conversations = api.conversationSummaries()
                 loading = false
@@ -101,8 +105,8 @@ fun MessagingInboxScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text("atomos", color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.8).sp)
-                Text("MESSAGES  ·  PRIVATE BY DESIGN", color = InboxMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.25.sp)
+                Text("Messages", color = Color.White, fontSize = 29.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.8).sp)
+                Text("YOUR CONVERSATIONS", color = InboxMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
             }
             Surface(
                 modifier = Modifier.size(42.dp).clickable(onClick = onPeople),
@@ -186,9 +190,9 @@ fun MessagingInboxScreen(
                             .border(1.dp, Color(0xFF3C365E), CircleShape),
                         contentAlignment = Alignment.Center
                     ) { Text("✉", color = InboxAccent, fontSize = 31.sp) }
-                    Text(if (search.isBlank()) "A quieter inbox. For now." else "No matching conversations", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text(if (search.isBlank()) "No conversations yet" else "No matching conversations", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     Text(
-                        if (search.isBlank()) "Start a private conversation by finding someone on Atomos." else "Try another name or clear your search.",
+                        if (search.isBlank()) "Find someone on Atomos and start your first conversation." else "Try another name or clear your search.",
                         color = InboxMuted,
                         style = MaterialTheme.typography.bodyMedium
                     )
@@ -211,9 +215,8 @@ fun MessagingInboxScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(5.dp)
                     ) {
-                        Text("ATOMOS  ·  OPENMLS ${nativeProtocolVersion ?: "PENDING"}", color = InboxAccent, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                        Text(storageStatus, color = InboxMuted, fontSize = 10.sp)
-                        Text("Private conversations, built one device at a time.", color = InboxMuted, fontSize = 10.sp)
+                        Text("ATOMOS", color = InboxAccent, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                        Text("Your conversations stay in sync here.", color = InboxMuted, fontSize = 10.sp)
                     }
                 }
             }
@@ -287,7 +290,7 @@ private fun ConversationRow(
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    if (conversation.kind == "group") "Group conversation" else "Experimental MLS session",
+                    if (conversation.kind == "group") "Group conversation" else "Private conversation",
                     color = InboxMuted,
                     fontSize = 12.sp,
                     maxLines = 1,
