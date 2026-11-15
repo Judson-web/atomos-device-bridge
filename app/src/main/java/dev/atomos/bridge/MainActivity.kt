@@ -152,6 +152,9 @@ private fun AtomosApp(
         val oauthError = uri.getQueryParameter("error_description") ?: uri.getQueryParameter("error")
         val verifier = store.get("oauth_verifier")
         try {
+            require(uri.scheme == "dev.atomos.bridge" && uri.host == "auth-callback") {
+                "This sign-in link is not a valid Atomos callback."
+            }
             if (!oauthError.isNullOrBlank()) error(oauthError)
             require(!code.isNullOrBlank() && !verifier.isNullOrBlank()) {
                 "Discord sign-in could not be completed."
@@ -167,10 +170,9 @@ private fun AtomosApp(
             authError = null
             status = "Signed in with Discord."
         } catch (e: Exception) {
-            store.remove("access", "refresh", "oauth_verifier")
-            access = null
-            user = null
-            authState = "signed_out"
+            // A malformed or stale deep link must never revoke an existing local session.
+            store.remove("oauth_verifier")
+            authState = if (access.isNullOrBlank()) "signed_out" else "checking"
             authError = e.message ?: "Please try again."
             status = "Authentication failed."
         }
@@ -376,12 +378,12 @@ private fun AtomosApp(
             },
             bottomBar = {
                 if (page != "Files" && page != "Conversation") NavigationBar(containerColor = SurfaceDark) {
-                    listOf("Chats", "People", "Media", "Tools", "Profile").forEach { item ->
+                    listOf("Chats", "People", "Media", "Profile").forEach { item ->
                         NavigationBarItem(
-                            selected = page == item || (item == "Tools" && page in setOf("Network", "Storage", "Installer", "Settings", "Home")),
+                            selected = page == item,
                             onClick = { page = item },
-                            icon = { Text(when(item) { "Chats" -> "●"; "People" -> "◎"; "Media" -> "▧"; "Tools" -> "⌘"; else -> "◉" }) },
-                            label = { Text(if (item == "Tools") "More" else item) }
+                            icon = { Text(when(item) { "Chats" -> "●"; "People" -> "◎"; "Media" -> "▧"; else -> "◉" }) },
+                            label = { Text(item) }
                         )
                     }
                 }
