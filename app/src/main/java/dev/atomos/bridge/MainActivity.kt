@@ -381,7 +381,7 @@ private fun AtomosApp(
                             selected = page == item || (item == "Tools" && page in setOf("Network", "Storage", "Installer", "Settings", "Home")),
                             onClick = { page = item },
                             icon = { Text(when(item) { "Chats" -> "●"; "People" -> "◎"; "Media" -> "▧"; "Tools" -> "⌘"; else -> "◉" }) },
-                            label = { Text(item) }
+                            label = { Text(if (item == "Tools") "More" else item) }
                         )
                     }
                 }
@@ -482,7 +482,7 @@ private fun AtomosApp(
 
 @Composable private fun HomePage(n: NetworkSnapshot, status: String, onNetwork: () -> Unit, onFiles: () -> Unit, onInstaller: () -> Unit, onSpeed: () -> Unit, onStorage: () -> Unit, onChats: () -> Unit) {
     LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 18.dp)) {
-        item { Text("Your device, at a glance.", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
+        item { Text("More from Atomos", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
         item { Card(colors = CardDefaults.cardColors(containerColor = SurfaceDark), shape = RoundedCornerShape(24.dp)) {
             Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(if (n.validated) "INTERNET CONNECTED" else "CHECK CONNECTION", color = Violet, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
@@ -494,7 +494,6 @@ private fun AtomosApp(
                 Text("Live device connectivity and throughput", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } }
-        item { UtilityCard("Messages", "Private conversations and encrypted media sharing", "✉", onChats) }
         item { UtilityCard("Network monitor", "Live connection, throughput, IP and speed test", "↗", onNetwork) }
         item { UtilityCard("File manager", "Browse folders, organize and inspect files", "▤", onFiles) }
         item { UtilityCard("Storage insights", "See available space, file categories and large files", "◫", onStorage) }
