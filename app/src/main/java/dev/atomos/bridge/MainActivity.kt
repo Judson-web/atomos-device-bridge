@@ -405,7 +405,7 @@ private fun AtomosApp(
             }
         ) { padding ->
             Box(Modifier.fillMaxSize().padding(padding)) {
-                // Keep the five primary destinations composed. This preserves scroll,
+                // Keep the four messenger destinations composed. This preserves scroll,
                 // search, filters and live subscriptions while the user changes tabs.
                 Box(Modifier.fillMaxSize().then(if (page == "Chats" || page == "Conversation") Modifier else Modifier.size(0.dp))) {
                     MessagingInboxScreen(
