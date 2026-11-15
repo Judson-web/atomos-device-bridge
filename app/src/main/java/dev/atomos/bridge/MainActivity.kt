@@ -425,7 +425,9 @@ private fun AtomosApp(
                     ProfileScreen(user!!, network.ipAddress, status, signOut)
                 }
 
-                if (page == "Conversation") {
+                // Keep the active conversation composed while moving between
+                // primary destinations so its message history and live stream survive.
+                Box(Modifier.fillMaxSize().then(if (page == "Conversation") Modifier else Modifier.size(0.dp))) {
                     activeConversationId?.let { id ->
                         ConversationSetupScreen(
                             conversationId = id,
@@ -435,7 +437,9 @@ private fun AtomosApp(
                             onBack = { page = "Chats" }
                         )
                     }
-                } else if (page == "Files") {
+                }
+
+                if (page == "Files") {
                     FileManagerScreen(
                         onNavigate = { page = it },
                         onInstallPackage = { file ->
